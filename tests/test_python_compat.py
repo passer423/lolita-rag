@@ -33,6 +33,14 @@ from src.config import PROJECT_ROOT
 
 SOURCE_DIRS = ("src", "scripts", "tests")
 
+# Python 3.12 以下没有 FSTRING_* 系列 token，本模块的静态检查无从实现
+# （那些版本上解释器自己就会拒绝这类源码）。所以整组测试要**跳过**而不是失败——
+# 实测踩过：没加这个 skip 时，CI（3.11）上两条正向对照反而挂了。
+requires_fstring_tokens = pytest.mark.skipif(
+    not hasattr(tokenize, "FSTRING_START"),
+    reason="Python 3.12 以下没有 FSTRING_* token，无法做这项静态检查",
+)
+
 
 def fstring_hazards(source: str) -> list[tuple[int, str]]:
     """返回 ``(行号, 原因)``：在 Python 3.11 及以前会语法错误的 f-string 写法。
@@ -80,6 +88,7 @@ def fstring_hazards(source: str) -> list[tuple[int, str]]:
 
 # ------------------------------------------------------------------ 检测器自检
 
+@requires_fstring_tokens
 def test_detects_the_exact_pattern_that_broke_ci():
     """正向对照：必须抓出真实踩过的那种写法，否则这个测试只是永远绿灯的摆设。"""
     bad = 'lines = [f"[{i}] {re.sub(r\'\\n+\', \' \', text)}" for i, text in xs]\n'
@@ -88,12 +97,14 @@ def test_detects_the_exact_pattern_that_broke_ci():
     assert "反斜杠" in hazards[0][1]
 
 
+@requires_fstring_tokens
 def test_detects_nested_fstring_reusing_the_same_quote():
     bad = 'x = f"{f"{value}"}"\n'
     hazards = fstring_hazards(bad)
     assert hazards and "相同的引号" in hazards[0][1]
 
 
+@requires_fstring_tokens
 def test_accepts_valid_311_fstrings():
     """反向对照：合法写法一个都不能误报（误报会让人开始忽略这个检查）。"""
     good = "\n".join(
@@ -114,6 +125,7 @@ def test_accepts_valid_311_fstrings():
 
 # ------------------------------------------------------------------ 全仓扫描
 
+@requires_fstring_tokens
 def test_repository_has_no_fstring_syntax_hazards():
     problems: list[str] = []
     for folder in SOURCE_DIRS:
