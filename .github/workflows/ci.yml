@@ -32,6 +32,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # 把语法问题单独拎出来先跑一遍：CI 跑的是**最低支持版本**（3.11），而开发机通常是
+      # 更新的版本，3.12 放宽了 f-string 限制（PEP 701），有些写法在本机永远发现不了。
+      # 实测踩过：f-string 表达式里带反斜杠，3.11 直接语法错误；因为它是导入期错误，
+      # pytest 报的是「收集失败（退出码 2）」，完全看不出是语法问题。这一步会让它一眼可见。
+      - name: 语法自检（按 CI 的 Python 版本编译全部源码）
+        run: python -m compileall -q src scripts tests
+
       - name: 单元测试
         run: python -m pytest tests/ -q
 

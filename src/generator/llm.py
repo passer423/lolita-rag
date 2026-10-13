@@ -57,11 +57,16 @@ class Generator:
 
         引文内部的空行要折叠掉：否则「一条摘录」会在输出里裂成两个段落，
         后一段看起来就没有引用了（实测把引用覆盖率从 1.000 误报成 0.930）。
+
+        ⚠️ 折叠必须**先算好再插值**：写成 ``f"[{i}] {re.sub(r'\\n+', ' ', text)}"``
+        的话，表达式里带反斜杠，在 Python 3.11 及以前是**语法错误**（PEP 701 到 3.12
+        才放开）。本机是 3.13，这个错永远看不见——实测是 CI 抓出来的，
+        而且 pytest 报的是**收集失败（退出码 2）**，看起来完全不像语法问题。
         """
-        lines = [
-            f"[{index}] {re.sub(r'\n+', ' ', hit.chunk.text.strip())}"
-            for index, hit in enumerate(hits, start=1)
-        ]
+        lines = []
+        for index, hit in enumerate(hits, start=1):
+            body = re.sub(r"\n+", " ", hit.chunk.text.strip())
+            lines.append(f"[{index}] {body}")
         text = "（以下为检索到的原文摘录，未经模型归纳）\n\n" + "\n\n".join(lines)
         return Answer(text=text, hits=list(hits), used_llm=False, note=note)
 
