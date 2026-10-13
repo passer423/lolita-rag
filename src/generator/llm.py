@@ -52,9 +52,12 @@ class Generator:
         return self._client
 
     @staticmethod
-    def _extractive(hits: Sequence[Retrieved], note: str) -> Answer:
-        # 引文内部的空行要折叠掉：否则「一条摘录」会在输出里裂成两个段落，
-        # 后一段看起来就没有引用了（实测把引用覆盖率从 1.000 误报成 0.930）。
+    def extractive_answer(hits: Sequence[Retrieved], note: str) -> Answer:
+        """原文摘录式答案（公开方法：运行时降级也要用它）。
+
+        引文内部的空行要折叠掉：否则「一条摘录」会在输出里裂成两个段落，
+        后一段看起来就没有引用了（实测把引用覆盖率从 1.000 误报成 0.930）。
+        """
         lines = [
             f"[{index}] {re.sub(r'\n+', ' ', hit.chunk.text.strip())}"
             for index, hit in enumerate(hits, start=1)
@@ -68,7 +71,7 @@ class Generator:
             return Answer(text=NO_CONTEXT_REPLY, hits=[], used_llm=False, note="no_context")
 
         if not self.settings.llm_enabled:
-            return self._extractive(hits, note="未配置 LLM_API_KEY，已退化为抽取式答案")
+            return self.extractive_answer(hits, note="未配置 LLM_API_KEY，已退化为抽取式答案")
 
         try:
             response = self._get_client().chat.completions.create(
@@ -83,4 +86,4 @@ class Generator:
             return Answer(text=text, hits=list(hits), used_llm=True)
         except Exception as exc:  # noqa: BLE001 - 生成失败不应让整个问答崩掉
             logger.warning("LLM 调用失败（%s），已退化为抽取式答案", exc)
-            return self._extractive(hits, note=f"LLM 调用失败：{exc}")
+            return self.extractive_answer(hits, note=f"LLM 调用失败：{exc}")

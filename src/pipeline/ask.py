@@ -8,6 +8,7 @@ from typing import Sequence
 
 from src.config import Settings, settings as default_settings
 from src.generator.llm import Answer, Generator
+from src.generator.verify import verify_and_degrade
 from src.pipeline.query_log import log_query
 from src.pipeline.runtime import RetrieverBundle, load_retriever
 from src.schema import Retrieved
@@ -36,7 +37,11 @@ def ask(
     log_query(
         question, hits, settings=settings, source=source, elapsed_ms=elapsed_ms, bundle=bundle
     )
-    return Generator(settings).answer(question, hits)
+    # 运行时闸门：模型答案不达标就换成原文摘录（见 generator/verify.py）
+    answer, outcome = verify_and_degrade(question, Generator(settings).answer(question, hits), hits, settings)
+    if outcome.degraded:
+        logger.warning("答案已降级为原文摘录：%s", outcome.note)
+    return answer
 
 
 def retrieve(

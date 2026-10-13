@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from src.config import Settings, settings as default_settings
 from src.generator.llm import Generator
+from src.generator.verify import verify_and_degrade
 from src.pipeline.ask import hits_to_dicts, retrieve
 from src.pipeline.runtime import read_manifest
 from src.retriever.bm25 import tokenize
@@ -151,11 +152,16 @@ def create_app(
         if generate:
             try:
                 answer = Generator(app.state.settings).answer(query, hits)
+                # 运行时闸门：不达标的模型答案换成原文摘录，并把原因告诉前端
+                answer, outcome = verify_and_degrade(query, answer, list(hits), app.state.settings)
                 payload["answer"] = {
                     "text": answer.text,
                     "used_llm": answer.used_llm,
                     "note": answer.note,
                     "citations": answer.citations,
+                    "verified": outcome.checked,
+                    "degraded": outcome.degraded,
+                    "problems": outcome.problems,
                 }
             except Exception as exc:  # noqa: BLE001 - 生成失败不应让检索结果一起丢失
                 logger.exception("生成失败")
@@ -164,6 +170,9 @@ def create_app(
                     "used_llm": False,
                     "note": f"生成失败：{exc}",
                     "citations": [],
+                    "verified": False,
+                    "degraded": False,
+                    "problems": [],
                 }
         return payload
 
