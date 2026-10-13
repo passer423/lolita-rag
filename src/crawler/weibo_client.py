@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 CONTAINER_API = "https://m.weibo.cn/api/container/getIndex"
 CONFIG_API = "https://m.weibo.cn/api/config"
+# 长文全文接口：container/getIndex 对长博文只给截断版（实测 141 字 vs 真实 1365 字），
+# 全文要单独取。规模与说明见 pipeline/longtext.py。
+LONG_TEXT_API = "https://m.weibo.cn/statuses/extend"
 DETAIL_URL = "https://m.weibo.cn/detail/{mid}"
 MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -305,12 +308,47 @@ class WeiboClient:
 
         分页状态由调用方（``pipeline.crawl``）负责持久化，这样才能做到断点续爬；
         本方法刻意不自己循环翻页。
+
+        开了 ``crawl_fetch_longtext`` 时，会把本页被截断的长博文补成全文——
+        实测 22.4% 的采到的博文是截断的，而且**都是最长、信息量最大的那批**。
         """
         payload = self._get_json(
             CONTAINER_API,
             {"containerid": f"100103type=1&q={keyword}", "page_type": "searchall", "page": page},
         )
-        return self.parse_container(payload)
+        posts = self.parse_container(payload)
+        if self.settings.crawl_fetch_longtext and posts:
+            posts = self._fill_long_text(posts)
+        return posts
+
+    def fetch_long_text(self, post_id: str) -> str:
+        """取长博文全文；取不到就返回空串（调用方负责标注截断）。
+
+        返回的 HTML 片段交给调用方清洗——这里只负责拿内容。
+        """
+        try:
+            payload = self._get_json(LONG_TEXT_API, {"id": post_id})
+        except WeiboCrawlError as exc:
+            logger.warning("取全文失败（%s）：%s", post_id, exc)
+            return ""
+        data = payload.get("data") or {}
+        return str(data.get("longTextContent") or "")
+
+    def _fill_long_text(self, posts: list[Post]) -> list[Post]:
+        """把本页里被截断的博文换成全文（失败的标注为已截断）。"""
+        from src.pipeline.longtext import is_truncated, refresh_long_posts
+
+        if not any(is_truncated(post.text) for post in posts):
+            return posts
+        refreshed, stats = refresh_long_posts(posts, self.fetch_long_text)
+        if stats.candidates:
+            logger.info(
+                "本页长文补全：待补 %s，成功 %s，失败 %s",
+                stats.candidates,
+                stats.fetched,
+                stats.failed,
+            )
+        return refreshed
 
     def search(self, keyword: str, pages: int | None = None) -> list[Post]:
         """一次性采集多页（便利方法，内部不保存进度，仅用于快速验证）。"""

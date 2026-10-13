@@ -69,6 +69,13 @@ class AnswerEvalReport:
     no_context_refused: int = 0
     with_context_refusals: int = 0      # **纯**拒答（提到资料不足且零引用）
     caveated_answers: int = 0           # 带保留地作答（先声明局限，但仍给了带引用的信息）
+    # 语义忠实度（LLM-as-judge；未开启或评审失败时都记在 judge_failed 里）
+    judged: int = 0
+    faithful: int = 0
+    unfaithful: int = 0
+    judge_failed: int = 0
+    issues_by_kind: dict[str, int] = field(default_factory=dict)
+    unfaithful_cases: list[dict] = field(default_factory=list)
     # 明细
     results: list[AnswerQuality] = field(default_factory=list)
 
@@ -96,12 +103,19 @@ class AnswerEvalReport:
     def problems(self) -> list[AnswerQuality]:
         return [item for item in self.results if item.problems]
 
+    @property
+    def faithfulness_rate(self) -> float | None:
+        """忠实率 = 忠实 / 已判定条数。**评审失败的不计入分母**（未知不是错）。"""
+        decided = self.faithful + self.unfaithful
+        return None if not decided else self.faithful / decided
+
     def to_dict(self) -> dict:
         data = asdict(self)
         data["citation_valid_rate"] = self.citation_valid_rate
         data["unsupported_rate"] = self.unsupported_rate
         data["refusal_rate_without_context"] = self.refusal_rate_without_context
         data["citation_coverage"] = self.citation_coverage
+        data["faithfulness_rate"] = self.faithfulness_rate
         data["problem_count"] = len(self.problems)
         # results 里已经含明细，这里不重复塞一份
         data.pop("results", None)
@@ -128,6 +142,20 @@ class AnswerEvalReport:
             f"带保留地作答  : {self.caveated_answers} 条"
             f"（先声明资料局限、但仍给出带引用的信息，这是期望行为）",
         ]
+        if self.judged or self.judge_failed:
+            rate = self.faithfulness_rate
+            lines.append(
+                f"语义忠实率    : {'无有效判定' if rate is None else f'{rate:.3f}'}"
+                f"（忠实 {self.faithful} / 不忠实 {self.unfaithful} / 评审失败 {self.judge_failed}）"
+            )
+            if self.issues_by_kind:
+                summary = "、".join(
+                    f"{kind} ×{count}"
+                    for kind, count in sorted(self.issues_by_kind.items(), key=lambda kv: -kv[1])
+                )
+                lines.append(f"  问题类型    : {summary}")
+            for case in self.unfaithful_cases[:5]:
+                lines.append(f"  · {case['question'][:30]}：{case['detail'][:70]}")
         problems = self.problems
         if problems:
             lines.append("")
@@ -145,6 +173,7 @@ def evaluate_answers(
     *,
     bundle: RetrieverBundle | None = None,
     generator=None,
+    judge=None,
     top_k: int | None = None,
     limit: int | None = None,
 ) -> AnswerEvalReport:
@@ -152,6 +181,9 @@ def evaluate_answers(
 
     ``generator`` 可注入：只要实现 ``answer(question, hits) -> Answer``。
     不注入时用真实的 ``Generator``（无 Key 会自动退化为抽取式答案）。
+
+    ``judge`` 也可注入：只要实现 ``judge(question, answer_text, hits) -> JudgeVerdict``。
+    不传就不做语义评审（那部分指标显示为无有效判定）。
     """
     settings = settings or default_settings
     if generator is None:
@@ -195,5 +227,23 @@ def evaluate_answers(
             report.with_context_refusals += 1
         elif quality.caveated:
             report.caveated_answers += 1
+
+        # 语义评审：只对「真的走了模型」的答案做——抽取式是原文照抄，谈不上不忠实，
+        # 而且省掉一半调用。
+        if judge is not None and quality.used_llm:
+            verdict = judge.judge(question, answer.text, hits)
+            report.judged += 1
+            if verdict.failed:
+                report.judge_failed += 1
+            elif verdict.faithful:
+                report.faithful += 1
+            else:
+                report.unfaithful += 1
+                detail = "；".join(f"[{item.kind}] {item.detail}" for item in verdict.issues)
+                for item in verdict.issues:
+                    report.issues_by_kind[item.kind] = report.issues_by_kind.get(item.kind, 0) + 1
+                report.unfaithful_cases.append(
+                    {"question": question, "detail": detail, "answer": answer.text[:200]}
+                )
 
     return report

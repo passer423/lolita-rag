@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--top-k", type=int, default=None, help="检索条数（默认取配置 TOP_K）")
     parser.add_argument("--limit", type=int, default=None, help="只评测前 N 题")
     parser.add_argument("--problem-limit", type=int, default=10, help="列出多少条问题答案（0 = 全部）")
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="额外做语义忠实度评审（LLM-as-judge，每题多一次模型调用）",
+    )
     parser.add_argument("--json", action="store_true", help="以 JSON 输出")
     parser.add_argument("--log-level", default=None)
     args = parser.parse_args(argv)
@@ -39,9 +44,18 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(args.log_level or settings.log_level)
     eval_path = args.eval_path or str(settings.data_dir.parent / "eval" / "qa_real.jsonl")
 
+    judge = None
+    if args.judge:
+        from src.generator.judge import AnswerJudge
+
+        judge = AnswerJudge(settings)
+        if not settings.llm_enabled:
+            print("[错误] --judge 需要配置 LLM_API_KEY", file=sys.stderr)
+            return 2
+
     try:
         report = evaluate_answers(
-            eval_path, settings, top_k=args.top_k, limit=args.limit
+            eval_path, settings, top_k=args.top_k, limit=args.limit, judge=judge
         )
     except IndexMissingError as exc:
         print(f"[错误] {exc}", file=sys.stderr)

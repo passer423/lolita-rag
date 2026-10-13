@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     crawl_timeout: float = 15.0
     crawl_max_retry: int = 3
     crawl_pages: int = 3                 # 每个关键词翻页数
+    # 长博文补全：container/getIndex 只给截断版（实测 141 字 vs 真实 1365 字），
+    # 22.4% 的采到的博文受影响，而且都是最长的那批。开着会让这些博文多花 1 个请求。
+    crawl_fetch_longtext: bool = True
     http_proxy: str = ""                 # 例如 http://127.0.0.1:7890
 
     # ---------- 每日定时更新 ----------
