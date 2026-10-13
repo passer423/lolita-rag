@@ -28,8 +28,12 @@ BASELINE_PATH = PROJECT_ROOT / "eval" / "baseline.json"
 # 允许的抖动：指标是小数，浮点误差与语料微调会让它动一点，不该因此判回退。
 TOLERANCE = 0.005
 
-# 越小越好的指标（目前没有，保留扩展位）
-LOWER_IS_BETTER: frozenset[str] = frozenset()
+# 越小越好的指标：比较方向与其余指标相反。
+#
+# 漏掉这一条会**反过来**：生成层开始编造（unsupported_rate 0 → 0.3）不会被判回退，
+# 而它变好（0.3 → 0）反而会被报成回退。这个方向错误我一开始用「现有指标都是越高越好」
+# 把自己说服了，其实是 bug——指标名就写着 rate，越小越好。
+LOWER_IS_BETTER: frozenset[str] = frozenset({"unsupported_rate", "problem_count"})
 
 _PROGRESS_RE = re.compile(r"^([.FEsx]+)(?:\s*\[\s*\d+%\])?$")
 _SUMMARY_RE = re.compile(r"(\d+)\s+passed")
@@ -99,6 +103,43 @@ def run_eval(eval_path: str | Path, *, cwd: Path | None = None) -> dict[str, Any
     return json.loads(proc.stdout)
 
 
+def run_answer_eval(eval_path: str | Path, *, cwd: Path | None = None) -> dict[str, Any]:
+    """子进程跑 ``scripts/eval_answer.py --json``：生成层指标。
+
+    为什么把它也纳入回归：prompt 里那几条硬约束（引用、拒答）此前**没有任何东西在守**，
+    改提示词或换模型后引用格式坏掉，检索指标是看不出来的。
+    """
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts" / "eval_answer.py"),
+            "--eval-path",
+            str(eval_path),
+            "--json",
+        ],
+        cwd=str(cwd or PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"生成层评测失败（退出码 {proc.returncode}）：{(proc.stderr or '')[-400:]}"
+        )
+    return json.loads(proc.stdout)
+
+
+# 生成层里哪些指标要进基线（其余是明细，不进）
+ANSWER_METRIC_KEYS = (
+    "citation_valid_rate",
+    "citation_coverage",
+    "unsupported_rate",
+    "refusal_rate_without_context",
+    "problem_count",
+)
+
+
 def _portable(path: str | Path) -> str:
     """存进基线的路径必须与机器无关，否则这份文件一提交就绑死了某个人的目录。"""
     try:
@@ -112,11 +153,18 @@ def measure(
     *,
     settings: Settings | None = None,
     skip_tests: bool = False,
+    skip_answer_eval: bool = False,
 ) -> dict[str, Any]:
     settings = settings or default_settings
     bundle = load_retriever(settings)          # 顺便拿到指纹（语料规模 / 模型）
     report = run_eval(eval_path)
     refusal = report.get("refusal_accuracy")
+    answer_metrics: dict[str, Any] = {}
+    if not skip_answer_eval:
+        answer_report = run_answer_eval(eval_path)
+        for key in ANSWER_METRIC_KEYS:
+            value = answer_report.get(key)
+            answer_metrics[key] = None if value is None else round(float(value), 4)
     return {
         "captured_at": datetime.now().isoformat(timespec="seconds"),
         "eval_path": _portable(eval_path),
@@ -127,6 +175,7 @@ def measure(
             "hit_rate": round(float(report["hit_rate"]), 4),
             "refusal_accuracy": None if refusal is None else round(float(refusal), 4),
         },
+        "answer_metrics": answer_metrics,
         "counts": {
             "total": report["total"],
             "scored": report["scored"],
@@ -140,6 +189,7 @@ def compare(current: dict[str, Any], baseline: dict[str, Any]) -> tuple[list[str
     """返回 ``(回退项, 提示项)``。
 
     回退项 → 退出码 1；提示项（例如指纹变了、两组数字不可比）只提示，不算失败。
+    检索指标与生成层指标一起比——后者此前完全没人守。
     """
     regressions: list[str] = []
     notes: list[str] = []
@@ -154,14 +204,18 @@ def compare(current: dict[str, Any], baseline: dict[str, Any]) -> tuple[list[str
             f"{baseline.get('fingerprint')} → {current.get('fingerprint')}"
         )
 
-    for key, value in (current.get("metrics") or {}).items():
-        base = (baseline.get("metrics") or {}).get(key)
-        if value is None or base is None:
-            continue
-        delta = float(value) - float(base)
-        worse = delta < -TOLERANCE if key not in LOWER_IS_BETTER else delta > TOLERANCE
-        if worse:
-            regressions.append(f"{key} 从 {base} 降到 {value}（{delta:+.4f}）")
+    for group, label in (("metrics", ""), ("answer_metrics", "生成层 ")):
+        base_group = baseline.get(group) or {}
+        for key, value in (current.get(group) or {}).items():
+            base = base_group.get(key)
+            if value is None or base is None:
+                continue
+            delta = float(value) - float(base)
+            lower_is_better = key in LOWER_IS_BETTER
+            worse = delta > TOLERANCE if lower_is_better else delta < -TOLERANCE
+            if worse:
+                direction = "升到" if lower_is_better else "降到"
+                regressions.append(f"{label}{key} 从 {base} {direction} {value}（{delta:+.4f}）")
     return regressions, notes
 
 
@@ -174,16 +228,20 @@ def render(current: dict[str, Any], baseline: dict[str, Any] | None = None) -> s
         f"阈值 {fingerprint['min_vector_score']} / {fingerprint['fusion_mode']}",
         f"测试          : 通过 {tests.get('passed', 0)}，失败 {tests.get('failed', 0)}",
         "",
-        f"{'指标':<18}{'当前':>9}{'基线':>9}{'变化':>10}",
+        f"{'指标':<26}{'当前':>9}{'基线':>9}{'变化':>10}",
     ]
-    for key, value in (current.get("metrics") or {}).items():
-        base = None if baseline is None else (baseline.get("metrics") or {}).get(key)
+    rows: list[tuple[str, Any]] = []
+    for group, label in (("metrics", ""), ("answer_metrics", "生成层 ")):
+        base_group = {} if baseline is None else (baseline.get(group) or {})
+        for key, value in (current.get(group) or {}).items():
+            rows.append((f"{label}{key}", (value, base_group.get(key))))
+    for name, (value, base) in rows:
         base_text = "—" if base is None else f"{float(base):.3f}"
         if value is None:
-            lines.append(f"{key:<18}{'—':>9}{base_text:>9}{'':>10}")
+            lines.append(f"{name:<26}{'—':>9}{base_text:>9}{'':>10}")
             continue
         delta = "" if base is None else f"{float(value) - float(base):+.4f}"
-        lines.append(f"{key:<18}{float(value):>9.3f}{base_text:>9}{delta:>10}")
+        lines.append(f"{name:<26}{float(value):>9.3f}{base_text:>9}{delta:>10}")
     return "\n".join(lines)
 
 

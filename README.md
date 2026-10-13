@@ -55,6 +55,7 @@ lolita-rag/
 │   ├── build_index.py       构建索引
 │   ├── ask.py               提问（单次 / 交互）
 │   ├── eval.py              离线评测
+│   ├── eval_answer.py       生成层评测（引用有效、事实越界、拒答）
 │   ├── query_log.py         查询日志分析（--refused 看 bad case 候选池）
 │   └── regression.py        回归：测试 + 评测 + 和基线比，掉指标就非零退出
 ├── src/
@@ -66,13 +67,14 @@ lolita-rag/
 │   ├── embedding/           embedder.py（BGE + 哈希兜底 + 向量缓存）
 │   ├── vectorstore/         chroma_store.py、simple_store.py（numpy 兜底）、工厂
 │   ├── retriever/           bm25.py、hybrid.py（weighted/RRF 融合 + 闸门）
-│   ├── generator/           prompt.py（提示词）、llm.py（生成 + 兜底）
-│   └── pipeline/            crawl / build_index / ask / eval / query_log /
-│                            regression / runtime 编排
+│   ├── generator/           prompt.py（提示词）、llm.py（生成 + 兜底）、
+│   │                        quality.py（答案质检：引用/事实/拒答）
+│   └── pipeline/            crawl / build_index / ask / eval / answer_eval /
+│                            query_log / regression / runtime 编排
 ├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
 ├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
 ├── data/                    raw / processed / index / cache / logs（均不入库）
-└── tests/                   单元测试（224 项，含真实数据打出来的回归用例）
+└── tests/                   单元测试（246 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
@@ -532,7 +534,59 @@ python scripts/eval.py --eval-path eval/qa_real.jsonl --json   # 机器可读，
 
 ---
 
-## 测试
+## 生成层评测（答案质量）
+
+`pipeline/eval.py` 只看**检索**（Recall / MRR / 拒答=「检索返回空」）；
+这一段看**用户真正读到的那段话**——prompt 里那三条硬约束（只依据资料 / 必须标 `[编号]` /
+资料不足要拒答）此前**没有任何东西在验证**。
+
+```bash
+python scripts/eval_answer.py            # 真实语料 + 当前生成配置
+python scripts/eval_answer.py --limit 5  # 先跑几条看看
+python scripts/eval_answer.py --json     # 机器可读（回归脚本用的就是它）
+```
+
+四项机器可判定的检查（[src/generator/quality.py](src/generator/quality.py)）：
+
+| 检查 | 判据 | 为什么它重要 |
+|---|---|---|
+| 引用编号有效 | `[n]` 必须落在 `1..命中条数` 内 | 越界引用等于凭空捏造来源 |
+| 有结论就要有引用 | 段落级 | 没有引用就作答说明硬约束没被遵守 |
+| 数字/日期不能凭空出现 | ≥2 位数字逐个回查资料 | 价格与日期是这份语料里最要命的事实 |
+| 没资料必须拒答 | 检索为空还给出结论 = 硬答 | 防幻觉的最后一道 |
+
+实测（**无 Key，走抽取式兜底**，32 题）：
+
+| 指标 | 值 |
+|---|---|
+| 引用编号有效 | 1.000（32/32） |
+| 引用覆盖率 | 1.000（211/211 句带引用） |
+| 无引用就作答 | 0 条 |
+| 疑似事实越界 | 0.000（0/32 条，共回查 75 个数字） |
+| 无资料时拒答 | 1.000（8/8） |
+
+> ⚠️ **抽取式兜底天然不会编造**，所以「事实越界 = 0」是构造性的结论。
+> **配上 `LLM_API_KEY` 后再跑一次，这个数字才有意义**——那才是真正在验证模型的忠实度。
+> 这也是当前项目最大的未验证区域。
+
+**它测不了什么**（诚实边界）：把资料的 A 说成 B、把两篇的意思混起来，机器判不出来，
+要 LLM-as-judge 或人工抽检；数字提取也只取 **≥2 位**的（单个数字常是模型对资料的正确
+归纳，判成编造属于误伤）。
+
+### 先量再改：覆盖率从 0.485 修到 1.000
+
+第一次跑出「引用覆盖率 0.485」，看着像生成层大面积漏标引用。查下来是**指标自己错了**，
+而且是三层错叠在一起：
+
+1. 按**句子**判定：抽取式答案是「`[1]` + 整段原文」，一段里好几句话，第 2 句起全被算成无引用；
+2. 改成按**空行**切段落仍不对：原文自带空行时，同一条引文被切成两段；
+3. 最后把数字算清楚了——剩下的 16 句 = **8 条拒答 × 2 句**：拒答文案本来就没有结论，
+   不该进引用覆盖统计。
+
+改完是 1.000（211/211）。**如果不先看数字就去"优化生成层"，等于去修一个本来没坏的东西。**
+这个教训和前面几次一样：**指标错了比模型错了更危险，因为它看起来像个结论**。
+
+---
 
 ```bash
 python -m pytest tests/ -q
@@ -587,15 +641,21 @@ python scripts/regression.py --skip-tests # 只跑评测（更快）
 ```
 
 基线在 [eval/baseline.json](eval/baseline.json)，除指标外还带**参数指纹**
-（片段数 / embedding 模型 / 阈值 / 融合方式）：
+（片段数 / embedding 模型 / 阈值 / 融合方式），并且**检索指标与生成层指标一起比**：
 
 ```json
-"metrics":     { "recall_at_k": 1.0, "mrr": 0.8847, "hit_rate": 1.0, "refusal_accuracy": 1.0 },
-"fingerprint": { "chunks": 1372, "embedder": "bge:BAAI/bge-small-zh-v1.5", "min_vector_score": 0.44 }
+"metrics":        { "recall_at_k": 1.0, "mrr": 0.8847, "hit_rate": 1.0, "refusal_accuracy": 1.0 },
+"answer_metrics": { "citation_valid_rate": 1.0, "citation_coverage": 1.0, "unsupported_rate": 0.0,
+                    "refusal_rate_without_context": 1.0, "problem_count": 0.0 },
+"fingerprint":    { "chunks": 1372, "embedder": "bge:BAAI/bge-small-zh-v1.5", "min_vector_score": 0.44 }
 ```
 
 指纹不一致时**不判失败**，但会明确提示两组数字不可直接比——这补上了此前
 「索引/参数没有版本绑定、无法复现某次评测」的缺口。允许 0.005 的浮点抖动。
+
+> **方向也有讲究**：`unsupported_rate` / `problem_count` 是**越小越好**，比较方向与其余
+> 指标相反（`LOWER_IS_BETTER`）。我一开始漏了这一点，还用「现有指标都是越高越好」
+> 把自己说服了——那会导致**模型开始编造时回归不报警、它变好反而报回退**。已修正并加测试。
 
 > ⚠️ **真实语料的回归只能在本地跑。** `data/`（语料与索引）不入库，CI 上只有
 > `eval/qa_mock.jsonl`，而且 `EMBEDDING_ALLOW_DOWNLOAD=false` 会让它退化成哈希向量

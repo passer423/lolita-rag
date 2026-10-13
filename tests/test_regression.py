@@ -70,8 +70,41 @@ def _snapshot(mrr: float = 0.885, recall: float = 1.0, failed: int = 0, chunks: 
             "min_vector_score": 0.44,
         },
         "metrics": {"recall_at_k": recall, "mrr": mrr, "refusal_accuracy": 1.0},
-        "tests": {"passed": 213, "failed": failed},
+        "answer_metrics": {
+            "citation_valid_rate": 1.0,
+            "citation_coverage": 1.0,
+            "unsupported_rate": 0.0,
+            "refusal_rate_without_context": 1.0,
+            "problem_count": 0.0,
+        },
+        "tests": {"passed": 246, "failed": failed},
     }
+
+
+def test_answer_metric_drop_is_also_a_regression():
+    """生成层指标此前完全没人守：改提示词把引用格式改坏，检索指标是看不出来的。"""
+    current = _snapshot()
+    current["answer_metrics"]["citation_valid_rate"] = 0.6
+    regressions, _ = compare(current, _snapshot())
+    assert any("生成层 citation_valid_rate" in item for item in regressions)
+
+
+def test_metrics_that_should_go_down_are_compared_in_the_right_direction():
+    """``unsupported_rate`` / ``problem_count`` 越小越好，方向不能反。
+
+    反了会很危险：模型开始编造（0 → 0.3）不会被判回退，而它变好（0.3 → 0）反被
+    报成回退。这个方向错误我一开始用「现有指标都是越高越好」把自己说服了，其实是 bug。
+    """
+    worse = _snapshot()
+    worse["answer_metrics"]["unsupported_rate"] = 0.3
+    worse["answer_metrics"]["problem_count"] = 5.0
+    regressions, _ = compare(worse, _snapshot())
+    assert any("unsupported_rate 从 0.0 升到" in item for item in regressions)
+    assert any("problem_count 从 0.0 升到" in item for item in regressions)
+
+    better = _snapshot()
+    better["answer_metrics"]["unsupported_rate"] = 0.0
+    assert compare(better, _snapshot())[0] == []
 
 
 def test_metric_drop_is_reported_as_a_regression():

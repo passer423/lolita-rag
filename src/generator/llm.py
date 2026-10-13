@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -52,7 +53,12 @@ class Generator:
 
     @staticmethod
     def _extractive(hits: Sequence[Retrieved], note: str) -> Answer:
-        lines = [f"[{index}] {hit.chunk.text}" for index, hit in enumerate(hits, start=1)]
+        # 引文内部的空行要折叠掉：否则「一条摘录」会在输出里裂成两个段落，
+        # 后一段看起来就没有引用了（实测把引用覆盖率从 1.000 误报成 0.930）。
+        lines = [
+            f"[{index}] {re.sub(r'\n+', ' ', hit.chunk.text.strip())}"
+            for index, hit in enumerate(hits, start=1)
+        ]
         text = "（以下为检索到的原文摘录，未经模型归纳）\n\n" + "\n\n".join(lines)
         return Answer(text=text, hits=list(hits), used_llm=False, note=note)
 
