@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -22,11 +23,6 @@ import pytest
 from src.config import PROJECT_ROOT
 
 INDEX_HTML = PROJECT_ROOT / "src" / "web" / "static" / "index.html"
-
-# load_workspace_dependencies 给出的捆绑 node 路径（不在 PATH 上时用它）
-BUNDLED_NODE = Path(
-    r"C:\Users\50436\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe"
-)
 
 
 def read_page() -> str:
@@ -40,7 +36,24 @@ def inline_script() -> str:
 
 
 def find_node() -> str | None:
-    return shutil.which("node") or (str(BUNDLED_NODE) if BUNDLED_NODE.exists() else None)
+    """找一个可用的 node；找不到就跳过这条测试（**不硬编码任何本机路径**）。
+
+    顺序：``NODE_EXE`` 环境变量 → PATH → 两个最常见的安装位置。
+    """
+    override = os.environ.get("NODE_EXE", "").strip()
+    if override and Path(override).exists():
+        return override
+    found = shutil.which("node")
+    if found:
+        return found
+    for candidate in (
+        Path(r"C:\Program Files\nodejs\node.exe"),
+        Path("/usr/local/bin/node"),
+        Path("/usr/bin/node"),
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 # ------------------------------------------------------------------ 语法

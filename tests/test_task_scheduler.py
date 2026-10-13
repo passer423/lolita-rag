@@ -29,14 +29,15 @@ NS = {"t": TASK_NS}
 
 
 def make_spec(**overrides) -> TaskSpec:
+    # 用通用占位路径，避免把开发机的实际路径/用户名写进公开仓库
     base = dict(
         task_name="lolita-rag-daily-update",
-        command=r"D:\canda\python.exe",
-        arguments=r'"D:\proj\lolita-rag\scripts\daily_update.py"',
-        working_directory=r"D:\proj\lolita-rag",
+        command=r"C:\Python312\python.exe",
+        arguments=r'"C:\proj\lolita-rag\scripts\daily_update.py"',
+        working_directory=r"C:\proj\lolita-rag",
         start_time="02:00",
         description="每日更新",
-        user_id=r"DESKTOP\50436",
+        user_id=r"DESKTOP\testuser",
     )
     base.update(overrides)
     return TaskSpec(**base)
@@ -61,14 +62,14 @@ def test_xml_expresses_the_intended_semantics():
 
     principal = root.find("t:Principals/t:Principal", NS)
     assert principal.get("id") == "Author"
-    assert principal.find("t:UserId", NS).text == r"DESKTOP\50436"
+    assert principal.find("t:UserId", NS).text == r"DESKTOP\testuser"
     assert principal.find("t:LogonType", NS).text == "InteractiveToken"
     assert principal.find("t:RunLevel", NS).text == "LeastPrivilege"
 
     exec_node = root.find("t:Actions/t:Exec", NS)
-    assert exec_node.find("t:Command", NS).text == r"D:\canda\python.exe"
+    assert exec_node.find("t:Command", NS).text == r"C:\Python312\python.exe"
     assert exec_node.find("t:Arguments", NS).text.endswith("daily_update.py\"")
-    assert exec_node.find("t:WorkingDirectory", NS).text == r"D:\proj\lolita-rag"
+    assert exec_node.find("t:WorkingDirectory", NS).text == r"C:\proj\lolita-rag"
     assert root.find("t:RegistrationInfo/t:Description", NS).text == "每日更新"
 
 
