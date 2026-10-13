@@ -1,8 +1,8 @@
 {
-  "captured_at": "2026-10-13T16:20:29",
+  "captured_at": "2026-10-13T16:33:11",
   "eval_path": "eval/qa_real.jsonl",
   "fingerprint": {
-    "chunks": 1672,
+    "chunks": 1675,
     "embedder": "bge:BAAI/bge-small-zh-v1.5",
     "fusion_mode": "weighted",
     "min_vector_score": 0.44,
@@ -29,7 +29,7 @@
     "refusal_total": 8
   },
   "tests": {
-    "passed": 363,
+    "passed": 378,
     "failed": 0,
     "returncode": 0
   }

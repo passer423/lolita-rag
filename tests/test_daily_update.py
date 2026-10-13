@@ -8,11 +8,16 @@
 from __future__ import annotations
 
 import pytest
+import requests
 
 from src.config import Settings
 from src.crawler.weibo_client import LoginStatus
 from src.pipeline.crawl import load_state
-from src.pipeline.daily_update import NotLoggedInError, run_daily_update
+from src.pipeline.daily_update import (
+    NotLoggedInError,
+    notify_server_reload,
+    run_daily_update,
+)
 from src.schema import Post
 from src.storage import load_posts, read_jsonl
 
@@ -155,3 +160,59 @@ def test_daily_cursor_is_recorded_separately_from_backfill(tmp_path):
     assert "keywords" not in state or state["keywords"] == {}, (
         "daily 模式不应写 backfill 的 per-keyword 游标，否则会污染补历史进度"
     )
+
+
+# ------------------------------------------------------------------ 通知服务重载
+
+def test_run_daily_update_does_not_notify_by_default(tmp_path, monkeypatch):
+    """库函数默认**不发网络请求**：否则单元测试会去打本机的服务端口（甚至触发真重载）。"""
+    calls = []
+    monkeypatch.setattr(
+        "src.pipeline.daily_update.requests.post",
+        lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError("不该发请求")),
+    )
+    settings = make_settings(tmp_path)
+
+    run_daily_update(settings=settings, client=FakeClient(TWO_KEYWORD_PAGES), login_checker=logged_in)
+
+    assert calls == []
+
+
+def test_injected_notifier_result_lands_in_history(tmp_path):
+    """通知结果写进 history，方便事后判断「服务当时有没有被通知到」。"""
+    settings = make_settings(tmp_path)
+
+    run_daily_update(
+        settings=settings,
+        client=FakeClient(TWO_KEYWORD_PAGES),
+        login_checker=logged_in,
+        notifier=lambda _settings: "已通知本地服务重载索引",
+    )
+
+    rows = read_jsonl(settings.history_path)
+    assert "已通知本地服务重载索引" in rows[-1]["notes"]
+
+
+def test_notify_server_reload_is_fire_and_forget(tmp_path, monkeypatch):
+    """服务没开 / 返回 500 都不能让每日更新算失败——索引已经写好在磁盘上了。"""
+    settings = make_settings(tmp_path)
+
+    def unreachable(*_args, **_kwargs):
+        raise requests.RequestException("连接被拒绝")
+
+    monkeypatch.setattr("src.pipeline.daily_update.requests.post", unreachable)
+    assert "未运行" in notify_server_reload(settings)
+
+    class BadResponse:
+        status_code = 500
+        text = "内部错误"
+
+    monkeypatch.setattr("src.pipeline.daily_update.requests.post", lambda *a, **k: BadResponse())
+    assert "HTTP 500" in notify_server_reload(settings)
+
+    class GoodResponse:
+        status_code = 200
+        text = '{"status":"ok","chunks":1672}'
+
+    monkeypatch.setattr("src.pipeline.daily_update.requests.post", lambda *a, **k: GoodResponse())
+    assert "已通知" in notify_server_reload(settings)

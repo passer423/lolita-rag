@@ -68,18 +68,21 @@ lolita-rag/
 │   ├── preprocessing/       clean.py（清洗）、chunk.py（切分）
 │   ├── embedding/           embedder.py（BGE + 哈希兜底 + 向量缓存）
 │   ├── vectorstore/         chroma_store.py、simple_store.py（numpy 兜底）、工厂
-│   ├── retriever/           bm25.py、hybrid.py（weighted/RRF 融合 + 闸门）
+│   ├── retriever/           bm25.py、hybrid.py（weighted/RRF 融合 + 闸门）、
+│   │                        reranker.py（cross-encoder 精排，默认关闭）
 │   ├── generator/           prompt.py（提示词）、llm.py（生成 + 兜底）、
 │   │                        quality.py（答案质检：引用/事实/拒答）、
 │   │                        verify.py（运行时闸门：不达标就降级为原文摘录）、
 │   │                        judge.py（LLM-as-judge：语义忠实度）
+│   ├── web/                 app.py（FastAPI）、watcher.py（索引热重载）、
+│   │                        static/index.html（单页前端，零外部依赖）
 │   └── pipeline/            crawl / build_index / ask / eval / answer_eval /
 │                            query_log / real_queries / longtext / hot_posts /
 │                            ablation / regression / runtime 编排
 ├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
 ├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
 ├── data/                    raw / processed / index / cache / logs（均不入库）
-└── tests/                   单元测试（363 项，含真实数据打出来的回归用例）
+└── tests/                   单元测试（378 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
@@ -199,12 +202,13 @@ python scripts/serve.py --port 8765
 
 | 项目 | 说明 |
 |---|---|
-| 接口 | `GET /api/search?q=…&top_k=5&generate=false`、`GET /api/hot?days=1`、`GET /api/index`、`GET /api/health` |
+| 接口 | `GET /api/search?q=…&top_k=5&generate=false`、`GET /api/hot?days=1`、`GET /api/index`、`GET /api/health`、`POST /api/reload`（仅本机） |
 | 交互式文档 | `http://127.0.0.1:8000/docs` |
 | 依赖 | 无外部 CDN 资源，离线可用；索引在启动时装载一次（BGE 约 5 秒） |
+| 索引热重载 | 运行期间索引变了会**自动重载**（默认每 30 秒查一次清单；`daily_update` 跑完还会主动通知），所以夜间更新后不需要手动重启 |
 | 监听范围 | 默认只监听 `127.0.0.1`；加 `--host 0.0.0.0` 可局域网访问（等于把语料暴露给同网段） |
 | 语料提示 | 若索引来自 mock 语料，页面顶部会显示醒目提示，避免把演示数据当真实结果 |
-| 实现 | [src/web/app.py](src/web/app.py) + [src/web/static/index.html](src/web/static/index.html)，前端单文件、零外部依赖 |
+| 实现 | [src/web/app.py](src/web/app.py) + [src/web/watcher.py](src/web/watcher.py) + [src/web/static/index.html](src/web/static/index.html)，前端单文件、零外部依赖 |
 
 ### 热门推荐栏：两个词都得先定义清楚
 
@@ -339,13 +343,24 @@ python scripts/register_task.py --unregister
 注销 / 关机会不跑**。已开「错过后尽快补跑」，所以笔记本晚上休眠、第二天开机后会自动补上。
 想做到注销后也能跑，需要带密码的凭据（`schtasks /RU /RP`），那一步要管理员权限。
 
-**② 更新完要让服务重新装载索引。** `serve.py` 是**启动时装载一次**索引（加载 BGE 约 5 秒），
-而凌晨的任务在另一个进程里写新索引——**正在运行的服务仍持有旧索引**。实测踩过：更新跑完
-（1478→1509 帖），页面上的片段数还是旧的，看起来像「自动更新没生效」。
-所以现在 `/api/index` 会返回 `stale` 字段，页面上也会显示醒目提示：
+**② 更新完服务会自己换上新索引（不需要重启）。** `serve.py` 是**启动时装载一次**索引
+（加载 BGE 约 5 秒），而凌晨的任务在**另一个进程**里写新索引。所以做了两条路，各有各的缺口：
 
-> ⚠️ 索引已在磁盘上更新（1672 个片段），但本服务装载的还是启动时那份（1642 个片段）。
-> 重启服务即可装载新索引：`python scripts/serve.py`
+| 机制 | 兜住什么 | 缺口 |
+|---|---|---|
+| **后台轮询**（`INDEX_WATCH_INTERVAL`，默认 30 秒） | 服务先启动、更新后发生（主要情况），不需要任何人访问页面 | 最坏要等一个间隔 |
+| **主动通知**（任务跑完 `POST /api/reload`，见 `history.jsonl` 的 notes） | 把窗口从「最多 30 秒」压到接近 0 | 服务没在跑时无效（那种情况本来也不需要） |
+
+实测（服务全程没重启）：任务新增 3 个片段 → `notes: ["已通知本地服务重载索引"]` →
+`/api/index` 从 1672 变成 **1675 片段、`stale: false`、`built_at` 更新**。
+
+> 两条工程底线都有测试守着：**重载失败保留旧索引**（模型损坏时服务照常可用，只是还在用
+> 旧数据）、**切换是一次属性赋值**（原子，请求只会看到旧的或新的，没有中间态）。
+> `/api/reload` 是管理动作，**只接受本机请求**——`--host 0.0.0.0` 时不能让局域网里
+> 任何人都能触发重载。
+>
+> 万一哪个环节没跟上，页面仍会显示醒目提示（`/api/index` 的 `stale` 字段），
+> 这时手动重启一次即可。**正常情况下它是 false。**
 
 **③ Cookie 会过期。** 失效时任务以退出码 3 停止，**绝不尝试自己修复登录态**（见下一节）。
 看结果最快的办法是看流水：

@@ -21,6 +21,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+import requests
+
 from src.config import Settings, settings as default_settings
 from src.crawler.weibo_client import LoginStatus, WeiboCrawlError, check_login
 from src.pipeline.build_index import BuildStats, build_index
@@ -84,10 +86,14 @@ def run_daily_update(
     pages: int | None = None,
     client: Any | None = None,
     login_checker: Callable[[], LoginStatus] | None = None,
+    notifier: Callable[[Settings], str] | None = None,
 ) -> DailyReport:
     """执行一次每日更新。**调用方负责持锁**（见 ``scripts/daily_update.py``）。
 
-    ``client`` 与 ``login_checker`` 都可注入，因此整条链路可以离线测试。
+    ``client`` / ``login_checker`` / ``notifier`` 都可注入，因此整条链路可以离线测试。
+
+    ``notifier`` 刻意**默认不做事**：库函数不该暗地里发网络请求（否则单元测试会去打
+    本机的服务端口）。真实通知由入口脚本接上 —— 见 ``scripts/daily_update.py``。
     """
     settings = settings or default_settings
     settings.ensure_dirs()
@@ -141,9 +147,34 @@ def run_daily_update(
 
     report.finished_at = datetime.now().isoformat(timespec="seconds")
     report.seconds = time.monotonic() - started
+    if notifier is not None:
+        report.notes.append(notifier(settings))
     append_jsonl(settings.history_path, report.to_dict())
     logger.info("每日更新完成：%s", report.to_dict())
     return report
+
+
+def notify_server_reload(settings: Settings | None = None) -> str:
+    """跑完顺手通知本地服务重载索引；服务没在跑就当没这回事。
+
+    为什么要这一步：`serve.py` 是启动时装载一次索引，而本任务在**另一个进程**里写新索引
+    —— 不通知的话，服务要么等自己的后台轮询（默认 30 秒），要么一直用旧索引。
+
+    **刻意做成 fire-and-forget**：服务没开、端口不通、返回 500，都不能让每日更新算失败。
+    索引已经在磁盘上写好了，那才是这条流水线的产出。
+    """
+    settings = settings or default_settings
+    url = f"http://127.0.0.1:{settings.web_port}/api/reload"
+    try:
+        response = requests.post(url, timeout=3)
+    except requests.RequestException as exc:
+        logger.info("本地服务未运行或不可达，跳过通知重载：%s", exc)
+        return "本地服务未运行，未通知重载（下次启动服务时会装载新索引）"
+    if response.status_code != 200:
+        logger.warning("通知重载被拒绝：HTTP %s %s", response.status_code, response.text[:120])
+        return f"通知服务重载失败：HTTP {response.status_code}"
+    logger.info("已通知本地服务重载索引：%s", response.text[:120])
+    return "已通知本地服务重载索引"
 
 
 __all__ = [

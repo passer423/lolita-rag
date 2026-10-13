@@ -33,6 +33,7 @@ from src.pipeline.daily_update import (
     EXIT_NOT_LOGGED_IN,
     EXIT_OK,
     NotLoggedInError,
+    notify_server_reload,
     run_daily_update,
 )
 from src.pipeline.lock import AlreadyRunningError, single_instance_lock
@@ -83,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
                 settings,
                 pages=args.pages,
                 login_checker=login_checker,
+                # 真实通知由入口接上：库函数默认不发网络请求（否则单元测试会打到本机服务）
+                notifier=notify_server_reload,
             )
     except AlreadyRunningError as exc:
         _report_failure(f"[跳过] {exc}")

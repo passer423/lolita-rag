@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from src.config import Settings, settings as default_settings
@@ -27,6 +27,7 @@ from src.generator.verify import verify_and_degrade
 from src.pipeline.ask import hits_to_dicts, retrieve
 from src.pipeline.runtime import read_manifest
 from src.retriever.bm25 import tokenize
+from src.web.watcher import IndexWatcher
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,15 @@ async def _lifespan(app: FastAPI):
         logger.info("正在装载索引……")
         app.state.bundle = _load(app)
         logger.info("索引就绪：%s 个片段", len(getattr(app.state.bundle, "chunks", []) or []))
-    yield
+    # 注入了 bundle 的场景（测试）不启动轮询：否则它会去加载真实模型、把注入的替换掉
+    watcher = getattr(app.state, "watcher", None)
+    if watcher is not None:
+        watcher.start()
+    try:
+        yield
+    finally:
+        if watcher is not None:
+            watcher.stop()
 
 
 def _load(app: FastAPI):
@@ -105,6 +114,17 @@ def create_app(
     app.state.settings = settings or default_settings
     app.state.bundle = bundle
     app.state.posts_cache = {}
+    # 只在「没有注入 bundle」时启动热重载：注入 bundle 的是测试，
+    # 那种场景下真实加载会去下/加载模型，还会把注入的假检索器换掉。
+    app.state.watcher = (
+        IndexWatcher(
+            app,
+            settings=app.state.settings,
+            interval=app.state.settings.index_watch_interval,
+        )
+        if bundle is None and app.state.settings.index_watch_enabled
+        else None
+    )
 
     # ------------------------------------------------------------------ 页面
     @app.get("/", include_in_schema=False)
@@ -149,6 +169,34 @@ def create_app(
             "min_bm25_ratio": settings_.min_bm25_ratio,
             "llm_enabled": settings_.llm_enabled,
         }
+
+    # ------------------------------------------------------------------ 索引热重载
+    @app.post("/api/reload")
+    def api_reload(request: Request) -> dict:
+        """立刻重新装载索引（每日更新跑完会调它）。
+
+        **只接受本机请求**：这个接口会重新加载模型、替换检索器，属于管理动作。
+        默认只监听 127.0.0.1 时它本来就出不了本机，但用户可能用 `--host 0.0.0.0`
+        开给局域网，那时不该让任何人都能触发重载。
+        """
+        client_host = (request.client.host if request.client else "") or ""
+        if client_host not in {"127.0.0.1", "::1", "localhost"}:
+            raise HTTPException(status_code=403, detail="重载接口只允许从本机调用")
+
+        watcher = getattr(app.state, "watcher", None)
+        try:
+            if watcher is not None:
+                bundle = watcher.reload_now()
+            else:
+                bundle = _load(app)
+                app.state.bundle = bundle
+        except Exception as exc:  # noqa: BLE001 - 重载失败要带上原因，便于排查
+            logger.exception("索引重载失败")
+            raise HTTPException(status_code=500, detail=f"索引重载失败：{exc}") from exc
+
+        chunks = len(getattr(bundle, "chunks", []) or [])
+        logger.info("索引已按请求重载：%s 个片段", chunks)
+        return {"status": "ok", "chunks": chunks}
 
     # ------------------------------------------------------------------ 热门推荐
     @app.get("/api/hot")

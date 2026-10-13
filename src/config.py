@@ -189,6 +189,15 @@ class Settings(BaseSettings):
     # 那要 LLM-as-judge。别把「通过校验」当成「一定忠实」。
     answer_verify_enabled: bool = True
 
+    # ---------- 索引热重载 ----------
+    # 解决「每日更新写完了新索引，但正在运行的服务还拿着启动时那份」的问题
+    # （实测踩过：更新跑完页面片段数还是旧的）。服务端后台按间隔检查清单变化并重载，
+    # 另外 daily_update 跑完会主动 POST /api/reload，把窗口压到接近 0。
+    index_watch_enabled: bool = True
+    index_watch_interval: float = 30.0
+    # 供 daily_update 通知服务用；serve.py 的 --port 默认值也取它
+    web_port: int = 8000
+
     # ---------- 目录与日志 ----------
     data_dir: Path = PROJECT_ROOT / "data"
     log_level: str = "INFO"
