@@ -1,5 +1,9 @@
-# 统一换行符：仓库里存 LF，避免 Windows 上反复出现「整文件被改」的假 diff。
-* text=auto
+# 统一换行符：仓库和**工作区**都用 LF。
+#
+# 为什么不是 ``* text=auto``：那样 Windows 上检出会变成 CRLF，于是每次 git 操作都
+# 刷一堆「LF will be replaced by CRLF」警告，还容易造出「整文件被改」的假 diff。
+# 本项目是 Python + UTF-8，统一 LF 最省事，也让跨平台一致。
+* text=auto eol=lf
 
 # 二进制文件不做换行转换与 diff 尝试。
 *.png binary
