@@ -57,6 +57,19 @@
     border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; white-space: pre-wrap;
   }
   .answer .note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+  .answer .note .warn { color: #8a6100; font-weight: 600; }
+  /* 引用可点：答案里的 [n] 跳到第 n 张来源卡片——「可回溯」这一层必须真的能用，
+     否则「每条结论都能自己核对」只是句口号。 */
+  .answer a.cite {
+    color: var(--accent); text-decoration: none; font-weight: 600;
+    padding: 0 2px; border-radius: 3px;
+  }
+  .answer a.cite:hover { background: var(--accent-soft); text-decoration: underline; }
+  .answer .sources { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .answer .src { font-size: 12.5px; margin-top: 4px; word-break: break-all; }
+  .answer .src .who { color: var(--muted); }
+  .answer .src a { color: var(--accent); }
+  .card:target { outline: 2px solid var(--accent); outline-offset: 2px; }
   .card {
     background: var(--card); border: 1px solid var(--line); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 12px;
@@ -164,16 +177,68 @@
     el.textContent = message;
   }
 
-  function renderAnswer(answer, requested) {
+  // 把答案正文里的 [n] 变成可点的锚点，指到下面第 n 张来源卡片。
+  //
+  // 做法是「先按 [n] 切分、逐段转义、只插入自己生成的标签」——
+  // 绝不能把模型输出直接塞进 innerHTML（那是 XSS，也是我自己写的字串拼接最容易犯的错）。
+  function linkCitations(text) {
+    var source = String(text || '');
+    var re = /\[(\d{1,2})\]/g;
+    var out = '';
+    var last = 0;
+    var match;
+    while ((match = re.exec(source)) !== null) {
+      out += escapeHtml(source.slice(last, match.index));
+      var n = parseInt(match[1], 10);
+      out += '<a class="cite" href="#hit-' + n + '" data-cite="' + n +
+             '" title="跳到第 ' + n + ' 条来源">[' + n + ']</a>';
+      last = match.index + match[0].length;
+    }
+    out += escapeHtml(source.slice(last));
+    return out;
+  }
+
+  // 来源清单：[n] + 作者 · 时间 + 可点链接。答案里的 [n] 与检索结果**序号对齐**
+  // （Answer.citations 就是按 hits 顺序生成的），所以这里能直接配对。
+  function renderSources(answer, hits) {
+    if (!answer.citations || !answer.citations.length) return '';
+    var rows = [];
+    for (var i = 0; i < answer.citations.length; i++) {
+      var n = i + 1;
+      var hit = (hits && hits[n - 1]) || null;
+      var label = [];
+      if (hit && hit.author) label.push(escapeHtml(hit.author));
+      if (hit && hit.created_at) label.push(escapeHtml(hit.created_at));
+      var url = answer.citations[i];
+      var link = url
+        ? '<a href="' + encodeURI(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(url) + '</a>'
+        : '<span>（无链接）</span>';
+      rows.push(
+        '<div class="src"><a class="cite" href="#hit-' + n + '">[' + n + ']</a> ' +
+        (label.length ? '<span class="who">' + label.join(' · ') + '</span> ' : '') +
+        link + '</div>'
+      );
+    }
+    return '<div class="sources">来源：' + rows.join('') + '</div>';
+  }
+
+  function renderAnswer(answer, requested, hits) {
     var box = $('answer');
     if (!requested || !answer) { box.hidden = true; return; }
     box.hidden = false;
-    var text = escapeHtml(answer.text || '（模型没有返回内容）');
-    var html = '<div>' + text + '</div>';
-    var bits = [];
-    if (answer.note) bits.push(escapeHtml(answer.note));
-    if (answer.citations && answer.citations.length) bits.push('来源：' + escapeHtml(answer.citations.join('  ')));
-    if (bits.length) html += '<div class="note">' + bits.join('<br>') + '</div>';
+    var html = '<div class="body">' + linkCitations(answer.text || '（模型没有返回内容）') + '</div>';
+    var notes = [];
+    // 运行时闸门的判定要显示出来：降级过就必须说，不能装作什么都没发生
+    if (answer.degraded) {
+      notes.push('<span class="warn">⚠️ 本条模型答案未通过引用校验，已降级为原文摘录' +
+        (answer.problems && answer.problems.length ? '（' + escapeHtml(answer.problems.join('；')) + '）' : '') +
+        '</span>');
+    } else if (answer.verified === false) {
+      notes.push('<span class="warn">⚠️ 本条未做校验（ANSWER_VERIFY_ENABLED=false）</span>');
+    }
+    if (answer.note) notes.push(escapeHtml(answer.note));
+    html += renderSources(answer, hits);
+    if (notes.length) html += '<div class="note">' + notes.join('<br>') + '</div>';
     box.innerHTML = html;
   }
 
@@ -195,7 +260,7 @@
       if (h.created_at) meta.push(escapeHtml(h.created_at));
       var seg = '';
       parts.push(
-        '<article class="card">' +
+        '<article class="card" id="hit-' + h.rank + '">' +
           '<div class="head">' +
             '<span class="rank">' + h.rank + '</span>' +
             '<span class="score">相关度 ' + Number(h.score).toFixed(4) + '</span>' +
@@ -244,7 +309,7 @@
       var data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
       currentTerms = data.terms || [];
-      renderAnswer(data.answer, generate);
+      renderAnswer(data.answer, generate, data.hits);
       renderHits(data);
       setStatus(data.count ? '命中 ' + data.count + ' 条' : '', 'ok');
     } catch (e) {

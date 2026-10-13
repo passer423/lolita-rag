@@ -183,6 +183,21 @@ def test_generate_without_api_key_falls_back_to_extractive():
     assert data["answer"]["citations"][0] == "https://example.com/p1"
 
 
+def test_answer_payload_exposes_runtime_gate_verdict():
+    """界面要显示「这条是否被降级」，所以判定结果必须随 payload 出去。
+
+    抽取式答案不走校验（它本来就是原文照抄），但字段必须在——
+    前端靠 `verified === false` 区分「没检查」和「检查通过」。
+    """
+    client, _ = make_client(make_hits(2))
+    with client:
+        answer = client.get("/api/search", params={"q": "柄图", "generate": "true"}).json()["answer"]
+
+    assert answer["verified"] is True
+    assert answer["degraded"] is False
+    assert answer["problems"] == []
+
+
 def test_generate_on_empty_result_refuses():
     client, _ = make_client([])
     with client:
