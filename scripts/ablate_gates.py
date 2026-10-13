@@ -33,7 +33,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="改为回放真实查询日志（无标注，比的是行为变化；日志路径见 QUERY_LOG_*）",
     )
-    parser.add_argument("--limit", type=int, default=200, help="--from-log 时最多回放多少条")
+    parser.add_argument(
+        "--from-corpus",
+        action="store_true",
+        help="改为回放「语料里真实用户问过的问题」（他人写的，比我自己出的评测集独立）",
+    )
+    parser.add_argument("--limit", type=int, default=200, help="--from-log / --from-corpus 的上限")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--log-level", default=None)
     args = parser.parse_args(argv)
@@ -46,12 +51,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[错误] {exc}", file=sys.stderr)
         return 2
 
-    if args.from_log:
+    if args.from_log or args.from_corpus:
         from src.pipeline.ablation import render_replay, replay_queries
-        from src.pipeline.query_log import read_records
 
-        records = read_records(settings.query_log_path, limit=args.limit)
-        queries = [str(row.get("query") or "") for row in records]
+        if args.from_log:
+            from src.pipeline.query_log import read_records
+
+            records = read_records(settings.query_log_path, limit=args.limit)
+            queries = [str(row.get("query") or "") for row in records]
+            source = "查询日志"
+        else:
+            from src.pipeline.real_queries import mine_queries
+
+            queries = mine_queries(bundle.chunks, limit=args.limit)
+            source = "语料里的真实提问"
+
+        if not queries:
+            print(f"{source}里没有可回放的查询。先真实用几次（网页界面或 ask.py），再来跑这一项。")
+            return 0
+
+        print(f"回放来源：{source}（{len(queries)} 条）\n")
         results = replay_queries(queries, settings, bundle=bundle)
         if args.json:
             print(json.dumps([item.to_dict() for item in results], ensure_ascii=False, indent=2))
