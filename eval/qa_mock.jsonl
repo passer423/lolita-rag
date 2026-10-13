@@ -1,0 +1,20 @@
+// 离线评测集 —— **只适用于 mock 语料**（标注的是 mock-001… 这些 post_id）。
+// 拿它去打真实语料，评测会直接报错，而不是给出一个会被误读的 Recall@5 = 0.000。
+// 采集真实语料后，请照着本文件的格式另标一份 eval/qa_real.jsonl。
+// relevant 为能回答该问题的 post_id 列表；expect_no_answer 表示语料里确实没有答案，
+// 用来考察系统会不会硬答。标注按 post_id 而非 chunk_id，因此改动切分策略后不需要重标。
+{"question": "JSK 和 OP 有什么区别，第一条裙子该买哪种？", "relevant": ["mock-001", "mock-002"]}
+{"question": "第一次去茶会要注意哪些礼仪？", "relevant": ["mock-005"]}
+{"question": "带亮片和烫金的裙子应该怎么洗？", "relevant": ["mock-007"]}
+{"question": "卡在两个尺码之间的时候该怎么选？", "relevant": ["mock-008"]}
+{"question": "国牌和日牌在价格和保值上有什么差别？", "relevant": ["mock-004"]}
+{"question": "痛lo 想日常通勤穿，怎么改造比较低调？", "relevant": ["mock-006"]}
+{"question": "新手入坑应该按什么顺序买东西？", "relevant": ["mock-014", "mock-001"]}
+{"question": "裙撑应该先买哪一种，日常撑度多少合适？", "relevant": ["mock-014"]}
+{"question": "手作发饰大概要多少成本？", "relevant": ["mock-010"]}
+{"question": "怎么用 Python 写一个快速排序？", "expect_no_answer": true}
+{"question": "Python 的装饰器怎么写？", "expect_no_answer": true}
+{"question": "红烧肉怎么做才不腻？", "expect_no_answer": true}
+{"question": "考研数学该怎么复习？", "expect_no_answer": true}
+{"question": "飞机票怎么改签？", "expect_no_answer": true}
+{"question": "如何用 Docker 部署一个 Node 服务？", "expect_no_answer": true}

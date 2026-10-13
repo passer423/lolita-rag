@@ -1,0 +1,30 @@
+# ===== 密钥：绝不入库 =====
+.env
+# .env 的备份同样含密钥
+.env.bak*
+
+# ===== 浏览器抓包：HAR 里带**完整 Cookie 请求头**（等于账号会话），绝不入库 =====
+*.har
+*.har.gz
+
+# ===== 数据与索引：体积大，且包含他人 UGC，整体不入库 =====
+# 这里刻意用整个 data/ 而不是逐条列举：逐条列举容易漏（例如 data/raw/*.json
+# 这种原始响应抓包），一旦漏掉就会把他人内容提交进版本库。
+# 目录由 settings.ensure_dirs() 在运行时自动创建，因此不需要 .gitkeep 占位。
+data/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== 虚拟环境与编辑器 =====
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store

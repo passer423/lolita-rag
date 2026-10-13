@@ -1,0 +1,27 @@
+# ===== 微博数据采集 =====
+requests>=2.31.0,<3.0.0
+beautifulsoup4>=4.12.0,<5.0.0
+lxml>=4.9.0
+
+# ===== 文本处理 =====
+jieba>=0.42.1
+rank-bm25>=0.2.2
+numpy>=1.24
+pandas>=2.0.0        # 语料统计与分析（流水线本身不依赖）
+tqdm>=4.65.0
+
+# ===== Embedding & 向量库 =====
+sentence-transformers>=2.2.2,<7.0.0   # BGE 中文模型（会自动带入 torch）
+chromadb>=0.4.22                      # 本地向量库；不可用时自动降级为 numpy 实现
+
+# ===== LLM 接入（兼容 OpenAI 协议的国产模型：DeepSeek / 通义千问 / 智谱等）=====
+openai>=1.12.0
+
+# ===== 配置与校验 =====
+python-dotenv>=1.0.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# ===== 本地检索界面（可选；不装也能用命令行检索）=====
+fastapi>=0.110
+uvicorn>=0.27

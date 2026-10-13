@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# ===== 开发与测试 =====
+pytest>=8.0
+pytest-cov>=5.0
+ruff>=0.5

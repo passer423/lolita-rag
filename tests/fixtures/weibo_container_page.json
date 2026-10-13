@@ -1,0 +1,83 @@
+{
+  "_note": "合成夹具：按 m.weibo.cn container 接口的公开响应结构手工构造，用于回归测试解析与清洗逻辑。它不是真实抓包数据，因此只能证明「解析器对已知结构的处理正确」，不能证明真实接口就是这个形状。真实形状见下方 card_type=11 那条注释——它已在真实接口上验证过。",
+  "ok": 1,
+  "data": {
+    "cardlistInfo": { "total": 5 },
+    "cards": [
+      {
+        "_comment": "实测结构：搜索接口第 2 页起，顶层就是这种 card_type=11 的包装卡片，真博文在其 card_group 里。旧解析器只认顶层 card_type=9，导致第 2 页起整页丢失。",
+        "card_type": 11,
+        "title": "推荐超话",
+        "card_group": [
+          {
+            "card_type": 9,
+            "mblog": {
+              "id": "9001",
+              "text": "包在 card_type=11 里的博文，必须被解析出来",
+              "user": { "screen_name": "包装层里的博文" }
+            }
+          }
+        ]
+      },
+      {
+        "card_type": 9,
+        "mblog": {
+          "id": "5001",
+          "text": "入手了这条<b>JSK</b>，柄图是草莓塔🍓 #Lolita# https://t.cn/A6xyzQ",
+          "user": { "screen_name": "裙摆与猫" },
+          "created_at": "Mon Mar 02 21:14:00 +0800 2026",
+          "attitudes_count": 328,
+          "comments_count": 76,
+          "reposts_count": 12
+        }
+      },
+      {
+        "card_type": 9,
+        "card_group": [
+          {
+            "card_type": 9,
+            "mblog": {
+              "id": 5002,
+              "text": "&nbsp;茶会礼仪整理：不要和别人撞柄😊 拍照前先问一句",
+              "user": { "screen_name": "茶会迟到选手" },
+              "attitudes_count": 1204
+            }
+          },
+          {
+            "card_type": 7,
+            "mblog": {
+              "id": "5002x",
+              "text": "分组里的非博文卡，应当被忽略",
+              "user": { "screen_name": "忽略我" }
+            }
+          },
+          {
+            "card_type": 9,
+            "mblog": {
+              "id": "5003",
+              "text": "转发微博 @裙摆与猫：这条搭配太绝了 https://t.cn/B1xyz",
+              "user": { "screen_name": "被种草的第三天" },
+              "attitudes_count": 44,
+              "retweeted_status": { "id": "5000", "text": "原博内容" }
+            }
+          }
+        ]
+      },
+      {
+        "card_type": 9,
+        "mblog": {
+          "id": "5004",
+          "text": "   ",
+          "user": { "screen_name": "空正文" }
+        }
+      },
+      {
+        "card_type": 9,
+        "mblog": {
+          "text": "没有 id 的博文应当被丢弃",
+          "user": { "screen_name": "无 id" }
+        }
+      }
+    ]
+  }
+}

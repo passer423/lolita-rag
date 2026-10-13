@@ -1,0 +1,24 @@
+<!doctype html>
+<!--
+  合成夹具：按真实保存的 s.weibo.com 搜索页结构手工构造（结构与选择器来自对真实页面的观察），
+  但**作者名与正文全部换成虚构内容**，避免把他人 UGC 提交进版本库。
+  真实结构里的要点：
+    * 博文卡片 = div[action-type="feed_list_item"][mid]
+    * 用户卡片也带 card-wrap，但没有 action-type / mid，必须区分开
+    * 正文优先取 node-type="feed_list_content_full"（长文时它才是完整正文）
+    * 互动数由 JS 加载，HTML 里没有
+-->
+<html data-dpr="@1">
+<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>微博搜索</title></head>
+<body>
+
+<div class="card-wrap "><div class="card card-user-b s-brt1"><div class="avator"><a href="https://weibo.com/u/1000000001"><img src="a.jpg"></a></div> <div class="info"><div><a href="https://weibo.com/u/1000000001" class="name">用户卡片示例</a></div> <p>时尚博主</p></div></div></div>
+
+<div action-type="feed_list_item" mid="5352896195725528" class="card-wrap"><div class="card-top"><h4 class="title"><i class="icon-title"></i><a href="https://s.weibo.com/weibo?q=lolita&amp;xsort=hot">热门</a></h4></div> <div class="card"><div class="card-feed"><div class="avator"><a href="https://weibo.com/3287063495"><img src="b.jpg"></a></div> <div class="info"><div><a href="https://weibo.com/3287063495" nick-name="示例作者甲">示例作者甲</a></div> <div class="from"><a href="https://weibo.com/3287063495/Rmc4ro1te">10月11日 18:09</a> &nbsp;来自 <a href="https://huati.weibo.com/158696">LOLITA超话</a></div></div> <div class="content"><p node-type="feed_list_content" nick-name="示例作者甲" class="txt"><a href="https://huati.weibo.com/158696" target="_blank"><i class="wbicon"></i>LOLITA超话</a> 今天穿的是黑蔷薇，配了珍珠项链。&nbsp;</p> <div node-type="feed_list_media_prev"><div node-type="fl_pic_list" action-data="uid=1&amp;mid=5352896195725528"></div></div></div></div> <div class="card-act"><ul><li><a href="javascript:void(0);" action-data="allowForward=1&amp;mid=5352896195725528&amp;name=示例作者甲&amp;uid=3287063495">转发</a></li><li><a href="javascript:void(0);">评论</a></li><li><a href="javascript:void(0);">赞</a></li></ul></div></div></div>
+
+<div action-type="feed_list_item" mid="5352896195725599" class="card-wrap"><div class="card"><div class="card-feed"><div class="info"><div><a href="https://weibo.com/3287063496" nick-name="示例作者乙">示例作者乙</a></div> <div class="from"><a href="https://weibo.com/3287063496/Rmc4ro2te">10月12日 09:30</a> &nbsp;来自 <a href="https://huati.weibo.com/158696">LOLITA超话</a></div></div> <div class="content"><p node-type="feed_list_content" nick-name="示例作者乙" class="txt">裙撑要先买 A 字撑，不要一上来就买暴力撑。<a href="https://weibo.com/3287063496/Rmc4ro2te" action-type="fl_unfold">展开<i class="wbicon">c</i></a></p> <p node-type="feed_list_content_full" class="hide">裙撑要先买 A 字撑，不要一上来就买暴力撑。带亮片和烫金的柄图千万别机洗，冷水手洗、反面阴干。日常撑度 2-3 就够了。<a href="javascript:void(0);" action-type="fl_fold">收起<i class="wbicon">d</i></a></p></div></div></div></div>
+
+<div action-type="feed_list_item" class="card-wrap"><div class="card"><div class="content"><p node-type="feed_list_content">没有 mid 的卡片（疑似广告位），应当被跳过</p></div></div></div>
+
+</body>
+</html>

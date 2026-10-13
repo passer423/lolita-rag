@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lolita-rag 检索</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --line: #e3e6ea;
+    --text: #1f2328;
+    --muted: #6b7280;
+    --accent: #2f6feb;
+    --accent-soft: #eaf1ff;
+    --warn-bg: #fff8e6;
+    --warn-line: #f0d089;
+    --err: #b42318;
+    --mark: #fff2a8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 48px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  header { padding: 28px 24px 12px; max-width: 900px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 22px; letter-spacing: .3px; }
+  h1 span { color: var(--muted); font-size: 14px; font-weight: 400; margin-left: 8px; }
+  .info { color: var(--muted); font-size: 13px; }
+  main, footer { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .banner {
+    max-width: 900px; margin: 12px auto 0; padding: 10px 14px;
+    background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px;
+    font-size: 13px; color: #7a5a12;
+  }
+  form { display: flex; gap: 8px; flex-wrap: wrap; margin: 22px 0 8px; }
+  input[type=search] {
+    flex: 1 1 320px; padding: 11px 13px; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text);
+  }
+  input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  select, button {
+    padding: 11px 14px; font-size: 14px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .55; cursor: progress; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 4px 0 18px; }
+  .hint code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+  .status { font-size: 13.5px; padding: 8px 0; }
+  .status.error { color: var(--err); }
+  .status.warn { color: #8a6100; }
+  .status.loading { color: var(--muted); }
+  .answer {
+    background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; white-space: pre-wrap;
+  }
+  .answer .note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .card .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+  .rank {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 24px; height: 24px; border-radius: 6px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12.5px;
+  }
+  .score { font-family: ui-monospace, Consolas, monospace; }
+  .route { padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); background: #fafbfc; }
+  .route.both { border-color: #bcd3ff; background: #f2f7ff; color: #1d4ed8; }
+  .text { margin: 9px 0 6px; white-space: pre-wrap; }
+  mark { background: var(--mark); padding: 0 2px; border-radius: 2px; }
+  .card a { color: var(--accent); font-size: 12.5px; text-decoration: none; word-break: break-all; }
+  .card a:hover { text-decoration: underline; }
+  .seg { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 18px 0; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--line); }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11.5px; background: #fff; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>lolita-rag 检索 <span>微博 Lolita 语料 · 混合检索（BM25 + 向量）</span></h1>
+  <div id="index-info" class="info">正在读取索引信息…</div>
+</header>
+
+<div id="mock-banner" class="banner" hidden>
+  ⚠️ 当前索引来自 <b>mock 演示语料</b>（项目内置的示例数据），不是真实微博内容。
+  采集真实语料后运行 <code>python scripts/build_index.py --source raw</code> 重建即可。
+</div>
+
+<main>
+  <form id="search-form">
+    <input id="q" type="search" placeholder="输入问题或关键词，例如：带亮片的裙子应该怎么洗？" autocomplete="off">
+    <select id="topk" title="返回条数">
+      <option value="3">3 条</option>
+      <option value="5" selected>5 条</option>
+      <option value="10">10 条</option>
+      <option value="20">20 条</option>
+    </select>
+    <button type="submit" class="primary">检索</button>
+    <button type="button" id="btn-generate">检索并生成答案</button>
+  </form>
+  <p class="hint">
+    分数是<b>融合分</b>（<code>weighted</code> 模式下等于两路归一化相关度之和，最高约 2.0），
+    <b>只看相对排序，别当相似度</b>；
+    <code>bm25+vector</code> 表示关键词与向量两路都召回（更可信），
+    只显示 <code>vector</code> 表示仅语义召回。
+    <kbd>/</kbd> 聚焦输入框，<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 检索并生成。
+  </p>
+
+  <section id="answer" class="answer" hidden></section>
+  <section id="status" class="status" hidden></section>
+  <section id="results"></section>
+</main>
+
+<footer>
+  检索不依赖大模型；「检索并生成答案」在未配置 <code>LLM_API_KEY</code> 时会退化为原文摘录。
+  分数与召回路径可用于判断是否需要调整 <code>MIN_VECTOR_SCORE</code>、<code>RECALL_K</code>、<code>BM25_WEIGHT</code>。
+</footer>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var currentTerms = [];
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // 用后端返回的 jieba 分词结果做高亮：中文按「词」高亮才准，
+  // 按字高亮会满屏都是黄底，按空格切又切不开中文。
+  function highlight(text, terms) {
+    var html = escapeHtml(text);
+    var usable = [];
+    for (var i = 0; i < terms.length; i++) {
+      var t = terms[i];
+      if (!t) continue;
+      if (t.length >= 2 || /[A-Za-z0-9]/.test(t)) usable.push(t);
+    }
+    usable = usable.filter(function (v, i, a) { return a.indexOf(v) === i; });
+    usable.sort(function (a, b) { return b.length - a.length; });
+    if (!usable.length) return html;
+    var pattern = usable.map(function (t) {
+      return escapeHtml(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }).join('|');
+    try {
+      return html.replace(new RegExp(pattern, 'gi'), function (m) { return '<mark>' + m + '</mark>'; });
+    } catch (e) {
+      return html;
+    }
+  }
+
+  function setStatus(message, kind) {
+    var el = $('status');
+    if (!message) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.className = 'status ' + (kind || '');
+    el.textContent = message;
+  }
+
+  function renderAnswer(answer, requested) {
+    var box = $('answer');
+    if (!requested || !answer) { box.hidden = true; return; }
+    box.hidden = false;
+    var text = escapeHtml(answer.text || '（模型没有返回内容）');
+    var html = '<div>' + text + '</div>';
+    var bits = [];
+    if (answer.note) bits.push(escapeHtml(answer.note));
+    if (answer.citations && answer.citations.length) bits.push('来源：' + escapeHtml(answer.citations.join('  ')));
+    if (bits.length) html += '<div class="note">' + bits.join('<br>') + '</div>';
+    box.innerHTML = html;
+  }
+
+  function renderHits(data) {
+    var box = $('results');
+    if (!data.hits || !data.hits.length) {
+      box.innerHTML = '<div class="empty">没有检索到相关内容。<br>' +
+        '这通常意味着语料里确实没有，或者需要放宽条件：调大 <code>RECALL_K</code>，' +
+        '或把 <code>MIN_VECTOR_SCORE</code> 调低。反过来，如果返回了一堆不相关的结果，' +
+        '就该把 <code>MIN_VECTOR_SCORE</code> 调高。</div>';
+      return;
+    }
+    var parts = [];
+    for (var i = 0; i < data.hits.length; i++) {
+      var h = data.hits[i];
+      var routeClass = (h.retriever || '').indexOf('+') >= 0 ? 'route both' : 'route';
+      var meta = [];
+      if (h.author) meta.push(escapeHtml(h.author));
+      if (h.created_at) meta.push(escapeHtml(h.created_at));
+      var seg = '';
+      parts.push(
+        '<article class="card">' +
+          '<div class="head">' +
+            '<span class="rank">' + h.rank + '</span>' +
+            '<span class="score">相关度 ' + Number(h.score).toFixed(4) + '</span>' +
+            '<span class="' + routeClass + '">' + escapeHtml(h.retriever) + '</span>' +
+            (meta.length ? '<span>' + meta.join(' · ') + '</span>' : '<span>未知来源</span>') +
+            seg +
+          '</div>' +
+          '<div class="text">' + highlight(h.text, currentTerms) + '</div>' +
+          (h.url ? '<a href="' + encodeURI(h.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(h.url) + '</a>' : '') +
+        '</article>'
+      );
+    }
+    box.innerHTML = parts.join('');
+  }
+
+  async function loadIndexInfo() {
+    try {
+      var resp = await fetch('/api/index');
+      var d = await resp.json();
+      $('index-info').textContent =
+        '语料 ' + d.posts + ' 条博文 / ' + d.chunks + ' 个片段 · 向量后端 ' + (d.backend || '-') +
+        ' · 模型 ' + (d.embedder || '-') + ' · 构建于 ' + (d.built_at || '-');
+      $('topk').value = String(d.top_k || 5);
+      $('mock-banner').hidden = !d.is_mock;
+      if (!d.llm_enabled) {
+        $('btn-generate').title = '未配置 LLM_API_KEY，将返回原文摘录（检索结果不受影响）';
+      }
+    } catch (e) {
+      $('index-info').textContent = '索引信息读取失败：' + e;
+    }
+  }
+
+  async function runSearch(generate) {
+    var q = $('q').value.trim();
+    if (!q) { setStatus('请输入查询词或问题。', 'warn'); $('q').focus(); return; }
+    var buttons = document.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+    setStatus(generate ? '正在检索并生成答案…' : '检索中…', 'loading');
+    $('results').innerHTML = '';
+    $('answer').hidden = true;
+    try {
+      var url = '/api/search?q=' + encodeURIComponent(q) +
+                '&top_k=' + encodeURIComponent($('topk').value) +
+                '&generate=' + (generate ? 'true' : 'false');
+      var resp = await fetch(url);
+      var data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+      currentTerms = data.terms || [];
+      renderAnswer(data.answer, generate);
+      renderHits(data);
+      setStatus(data.count ? '命中 ' + data.count + ' 条' : '', 'ok');
+    } catch (e) {
+      setStatus('检索失败：' + (e && e.message ? e.message : e), 'error');
+    } finally {
+      for (var j = 0; j < buttons.length; j++) buttons[j].disabled = false;
+    }
+  }
+
+  $('search-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    runSearch(false);
+  });
+  $('btn-generate').addEventListener('click', function () { runSearch(true); });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === '/' && document.activeElement !== $('q')) {
+      ev.preventDefault();
+      $('q').focus();
+    }
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault();
+      runSearch(true);
+    }
+  });
+
+  loadIndexInfo();
+})();
+</script>
+</body>
+</html>
