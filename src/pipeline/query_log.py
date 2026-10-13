@@ -125,7 +125,9 @@ def write_record(record: QueryRecord, settings: Settings | None = None) -> bool:
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(record.to_dict(), ensure_ascii=False)
         with _WRITE_LOCK:
-            with path.open("a", encoding="utf-8") as handle:
+            # newline="\n"：Windows 上默认会把 \n 翻成 CRLF。日志本身在 data/ 里不入库，
+            # 但统一 LF 能让 grep/jq/pandas 在任何平台行为一致。
+            with path.open("a", encoding="utf-8", newline="\n") as handle:
                 handle.write(line + "\n")
         return True
     except Exception as exc:  # noqa: BLE001 - 见上面那条硬约束

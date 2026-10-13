@@ -200,5 +200,9 @@ def load_baseline(path: Path | str = BASELINE_PATH) -> dict[str, Any] | None:
 def save_baseline(payload: dict[str, Any], path: Path | str = BASELINE_PATH) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # 显式 newline="\n"：Windows 上 Path.write_text 默认会把 \n 翻成 CRLF，
+    # 而这个文件**要进版本库**——留着 CRLF 会让每次 git 操作都刷一条
+    # 「CRLF will be replaced by LF」警告（实测如此）。
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return path
