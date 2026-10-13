@@ -40,7 +40,18 @@ jobs:
         run: python -m compileall -q src scripts tests
 
       - name: 单元测试
-        run: python -m pytest tests/ -q
+        # 失败时把明细写成 check-run 注解：这样在 PR 的 Checks 页面能直接看到
+        # 哪个测试挂了、挂在哪一行，不用翻完整日志。
+        run: |
+          set +e
+          python -m pytest tests/ -q > pytest.log 2>&1
+          code=$?
+          tail -40 pytest.log
+          if [ $code -ne 0 ]; then
+            MSG=$(grep -E "^(FAILED|ERROR|E  )" pytest.log | head -30 | tr '\n' '~')
+            echo "::error title=pytest 失败明细::${MSG:0:3500}"
+          fi
+          exit $code
 
       - name: 构建 mock 索引（真实语料不入库）
         run: python scripts/build_index.py
