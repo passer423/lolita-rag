@@ -93,7 +93,16 @@ def extract_citations(text: str) -> list[int]:
 
 
 def is_refusal(text: str) -> bool:
-    """模型是否在说「资料不足」。"""
+    """答案里是否**提到**「资料不足」。
+
+    ⚠️ 注意这只是「提到」，不等于「拒答」。实测真模型非常喜欢这种句式：
+
+        「资料中没有统一结论，不同资料对 op 和 jsk 的偏好存在差异：…op 更方便凉快 [1]」
+
+    它其实**答了**，只是先声明了资料的局限。早期版本把这种也算成拒答，
+    于是「有资料却拒答」被误报成 9 条（真实只有 2 条左右）——又是一次
+    「指标错了比模型错了更危险」。所以拒答要更严格地判定，见 ``refused`` 字段。
+    """
     return any(marker in (text or "") for marker in _REFUSAL_MARKERS)
 
 
@@ -118,7 +127,8 @@ class AnswerQuality:
     question: str
     has_context: bool
     n_sources: int
-    refused: bool
+    refused: bool = False               # **严格**拒答：提到资料不足且没有给出任何引用
+    mentions_insufficiency: bool = False  # 只是提到资料有局限（可能是带保留地作答）
     citations: list[int] = field(default_factory=list)
     invalid_citations: list[int] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
@@ -136,6 +146,11 @@ class AnswerQuality:
     def citation_valid(self) -> bool:
         return not self.invalid_citations
 
+    @property
+    def caveated(self) -> bool:
+        """「带保留地作答」：先声明资料有局限，但仍然给出了带引用的信息。"""
+        return self.mentions_insufficiency and not self.refused and bool(self.citations)
+
 
 def evaluate_answer(
     question: str,
@@ -148,7 +163,11 @@ def evaluate_answer(
     hits = list(hits)
     context = format_context(hits) if hits else ""
     citations = extract_citations(answer_text)
-    refused = is_refusal(answer_text)
+    mentions = is_refusal(answer_text)
+    # **严格**拒答：提到资料不足**且**一条引用都没有。真模型很爱「先声明局限再作答」，
+    # 那种是带保留地作答而不是拒答（实测把两者混为一谈会把「有资料却拒答」从 2 条
+    # 误报成 9 条）。
+    refused = mentions and not citations
     invalid = [number for number in citations if number < 1 or number > len(hits)]
     unsupported = unsupported_facts(answer_text, context) if hits else []
 
@@ -166,9 +185,10 @@ def evaluate_answer(
         # 「以下是原文摘录」这类说明句不是结论
         if not stripped or stripped.startswith("（以下为检索到的原文摘录"):
             continue
-        # 拒答句（「资料中没有相关内容」）本身没有结论，不该算进引用覆盖。
-        # 实测漏掉这一条会把覆盖率误算成 0.930——那 16 句正是 8 条拒答 × 2 句。
-        if is_refusal(stripped):
+        # **纯**拒答句没有结论，不该算进引用覆盖（实测漏掉会把覆盖率误算成 0.930，
+        # 那 16 句正是 8 条拒答 × 2 句）。带引用的「先声明局限再作答」不算纯拒答：
+        # 它确实有结论，该照常统计。
+        if is_refusal(stripped) and not _CITATION_RE.search(stripped):
             continue
         if not _CJK_RE.search(stripped):
             continue
@@ -186,6 +206,7 @@ def evaluate_answer(
         has_context=bool(hits),
         n_sources=len(hits),
         refused=refused,
+        mentions_insufficiency=mentions,
         citations=citations,
         invalid_citations=invalid,
         unsupported=unsupported,
@@ -197,7 +218,7 @@ def evaluate_answer(
 
     if invalid:
         quality.problems.append(f"引用编号越界：{invalid}（资料只有 {len(hits)} 条）")
-    if not hits and not refused:
+    if not hits and not mentions:
         quality.problems.append("检索为空却没有说明资料不足")
     if hits and not refused and not citations:
         quality.problems.append("给了结论却没有任何引用编号")

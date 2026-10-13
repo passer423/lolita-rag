@@ -67,7 +67,8 @@ class AnswerEvalReport:
     # 拒答
     no_context_cases: int = 0
     no_context_refused: int = 0
-    with_context_refusals: int = 0
+    with_context_refusals: int = 0      # **纯**拒答（提到资料不足且零引用）
+    caveated_answers: int = 0           # 带保留地作答（先声明局限，但仍给了带引用的信息）
     # 明细
     results: list[AnswerQuality] = field(default_factory=list)
 
@@ -123,7 +124,9 @@ class AnswerEvalReport:
             f"涉及 {self.unsupported_total} 个数字 / 共查 {self.facts_checked} 个）",
             f"无资料时拒答  : {percent(self.refusal_rate_without_context)}"
             f"（{self.no_context_refused}/{self.no_context_cases}）",
-            f"有资料也拒答  : {self.with_context_refusals} 条（不一定是错，但值得抽看）",
+            f"有资料纯拒答  : {self.with_context_refusals} 条（提到资料不足且零引用）",
+            f"带保留地作答  : {self.caveated_answers} 条"
+            f"（先声明资料局限、但仍给出带引用的信息，这是期望行为）",
         ]
         problems = self.problems
         if problems:
@@ -190,5 +193,7 @@ def evaluate_answers(
             report.no_context_refused += int(quality.refused)
         elif quality.refused:
             report.with_context_refusals += 1
+        elif quality.caveated:
+            report.caveated_answers += 1
 
     return report

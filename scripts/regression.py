@@ -38,6 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--update", action="store_true", help="把当前结果写成新基线")
     parser.add_argument("--skip-tests", action="store_true", help="跳过 pytest（只跑评测）")
     parser.add_argument("--skip-answer-eval", action="store_true", help="跳过生成层评测")
+    parser.add_argument(
+        "--with-llm",
+        action="store_true",
+        help="生成层评测走真模型（默认强制抽取式：确定性、不依赖网络；真模型有随机性，不适合当基线）",
+    )
     parser.add_argument("--log-level", default=None)
     args = parser.parse_args(argv)
 
@@ -45,7 +50,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         current = measure(
-            args.eval_path, skip_tests=args.skip_tests, skip_answer_eval=args.skip_answer_eval
+            args.eval_path,
+            skip_tests=args.skip_tests,
+            skip_answer_eval=args.skip_answer_eval,
+            answer_eval_llm=args.with_llm,
         )
     except IndexMissingError as exc:
         print(f"[错误] {exc}", file=sys.stderr)

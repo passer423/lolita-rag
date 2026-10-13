@@ -180,6 +180,33 @@ def test_refusal_with_context_is_not_a_problem_but_is_counted():
     quality = evaluate_answer("Q", "提供的资料中没有相关内容。", make_hits())
     assert quality.ok
     assert quality.refused and quality.has_context
+    assert quality.mentions_insufficiency
+    assert not quality.caveated
+
+
+def test_partial_answer_is_caveated_not_refused():
+    """真模型很爱「先声明资料局限，再给出信息」——那是作答，不是拒答。
+
+    实测把两者混为一谈，会把「有资料却拒答」从 2 条误报成 9 条。
+    """
+    text = "提供的资料中没有统一结论，不同资料偏好不同：op 更方便凉快 [1]，jsk 更好搭 [2]。"
+    quality = evaluate_answer("Q", text, make_hits())
+
+    assert quality.mentions_insufficiency is True
+    assert quality.refused is False, "有引用就说明它给出了信息"
+    assert quality.caveated is True
+    assert quality.ok
+    # 带引用的段落照常计入引用覆盖（它不是纯拒答句）
+    assert quality.sentences > 0
+    assert quality.uncited_sentences == 0
+
+
+def test_pure_refusal_paragraph_is_excluded_from_coverage():
+    text = "提供的资料中没有相关内容。\n\n有资料提到 [1] 这条裙子是紫色的。"
+    quality = evaluate_answer("Q", text, make_hits())
+    # 第一段是纯拒答 → 不计入；第二段有引用 → 计入且已覆盖
+    assert quality.sentences == 1
+    assert quality.uncited_sentences == 0
 
 
 # ------------------------------------------------------------------ 整体流程 + 假生成器

@@ -12,6 +12,7 @@ CI 上只有 `eval/qa_mock.jsonl` 能跑，所以 CI 覆盖的是「代码没坏
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -103,12 +104,29 @@ def run_eval(eval_path: str | Path, *, cwd: Path | None = None) -> dict[str, Any
     return json.loads(proc.stdout)
 
 
-def run_answer_eval(eval_path: str | Path, *, cwd: Path | None = None) -> dict[str, Any]:
+def run_answer_eval(
+    eval_path: str | Path,
+    *,
+    cwd: Path | None = None,
+    force_extractive: bool = True,
+) -> dict[str, Any]:
     """子进程跑 ``scripts/eval_answer.py --json``：生成层指标。
 
     为什么把它也纳入回归：prompt 里那几条硬约束（引用、拒答）此前**没有任何东西在守**，
     改提示词或换模型后引用格式坏掉，检索指标是看不出来的。
+
+    ⚠️ **默认强制走抽取式兜底**（把子进程的 ``LLM_API_KEY`` 置空）。两个原因，都是实测的：
+
+    1. **确定性**：真模型有随机性（temperature 0.2），同一份代码两次跑出的引用覆盖率
+       就有 0.903 / 0.920 的差别，而回归的容差是 0.005 —— 那会变成天天假报警；
+    2. **不依赖外部服务**：回归是「本机一条命令」的东西，不该因为网络或额度而失败。
+
+    想看真模型的数字时用 ``force_extractive=False``（CLI 的 ``--with-llm``），
+    那种结果更适合人工看，不适合当基线。
     """
+    env = None
+    if force_extractive:
+        env = {**os.environ, "LLM_API_KEY": ""}
     proc = subprocess.run(
         [
             sys.executable,
@@ -122,6 +140,7 @@ def run_answer_eval(eval_path: str | Path, *, cwd: Path | None = None) -> dict[s
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=env,
     )
     if proc.returncode != 0:
         raise RuntimeError(
@@ -154,6 +173,7 @@ def measure(
     settings: Settings | None = None,
     skip_tests: bool = False,
     skip_answer_eval: bool = False,
+    answer_eval_llm: bool = False,
 ) -> dict[str, Any]:
     settings = settings or default_settings
     bundle = load_retriever(settings)          # 顺便拿到指纹（语料规模 / 模型）
@@ -161,7 +181,7 @@ def measure(
     refusal = report.get("refusal_accuracy")
     answer_metrics: dict[str, Any] = {}
     if not skip_answer_eval:
-        answer_report = run_answer_eval(eval_path)
+        answer_report = run_answer_eval(eval_path, force_extractive=not answer_eval_llm)
         for key in ANSWER_METRIC_KEYS:
             value = answer_report.get(key)
             answer_metrics[key] = None if value is None else round(float(value), 4)
