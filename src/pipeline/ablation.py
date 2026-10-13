@@ -199,7 +199,7 @@ def render(results: list[AblationResult]) -> str:
     lines.append("")
     lines.append("逐条变化（只看总分容易被互相抵消的得分掩盖）：")
     for item in results[1:]:
-        lines.append(f"\n▸ 关掉「{item.description}」→ 变化 {len(item.changed)} 题")
+        lines.append(f"\n▸ {item.description} → 变化 {len(item.changed)} 题")
         if not item.changed:
             lines.append("    （没有任何题的结果变化，说明这条闸门在**这份评测集上**不承重）")
         for change in item.changed[:8]:
@@ -310,9 +310,9 @@ def render_replay(results: Sequence[ReplayResult]) -> str:
     lines.append("")
     for item in results:
         if item.changed_queries == 0:
-            lines.append(f"▸ 关掉「{item.description}」：{total} 条真实查询**结果完全没变** → 可以删")
+            lines.append(f"▸ {item.description}：{total} 条真实查询**结果完全没变** → 可以删")
         else:
-            lines.append(f"▸ 关掉「{item.description}」：{item.changed_queries} 条变化")
+            lines.append(f"▸ {item.description}：{item.changed_queries} 条变化")
             for example in item.examples:
                 lines.append(f"    · {example}")
     return "\n".join(lines)
