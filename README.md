@@ -54,7 +54,9 @@ lolita-rag/
 │   ├── crawl.py             采集真实微博数据
 │   ├── build_index.py       构建索引
 │   ├── ask.py               提问（单次 / 交互）
-│   └── eval.py              离线评测
+│   ├── eval.py              离线评测
+│   ├── query_log.py         查询日志分析（--refused 看 bad case 候选池）
+│   └── regression.py        回归：测试 + 评测 + 和基线比，掉指标就非零退出
 ├── src/
 │   ├── config.py            全部配置（pydantic-settings 读 .env）
 │   ├── schema.py            Post / Chunk / Retrieved 数据结构
@@ -63,12 +65,14 @@ lolita-rag/
 │   ├── preprocessing/       clean.py（清洗）、chunk.py（切分）
 │   ├── embedding/           embedder.py（BGE + 哈希兜底 + 向量缓存）
 │   ├── vectorstore/         chroma_store.py、simple_store.py（numpy 兜底）、工厂
-│   ├── retriever/           bm25.py、hybrid.py（RRF 融合）
+│   ├── retriever/           bm25.py、hybrid.py（weighted/RRF 融合 + 闸门）
 │   ├── generator/           prompt.py（提示词）、llm.py（生成 + 兜底）
-│   └── pipeline/            crawl / build_index / ask / eval / runtime 编排
-├── eval/qa_mock.jsonl       离线评测集（按 post_id 标注）
-├── data/                    raw / processed / index / cache（均不入库）
-└── tests/                   单元测试
+│   └── pipeline/            crawl / build_index / ask / eval / query_log /
+│                            regression / runtime 编排
+├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
+├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
+├── data/                    raw / processed / index / cache / logs（均不入库）
+└── tests/                   单元测试（223 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
@@ -544,10 +548,106 @@ python -m pytest tests/ -q
 | 回归点 | 测试 |
 |---|---|
 | 第 2 页起 `card_type=11` 包装卡片里的博文 | `test_weibo_parser.py::test_parses_mblogs_nested_in_wrapper_cards` |
+| 「采尽」被当成故障导致整轮中断 | `test_weibo_parser.py::test_exhausted_search_page_is_treated_as_no_results_not_an_error` |
 | Cookie 域优先级（`api.weibo.cn` 不能被当成 PC 站） | `test_cookie_from_har.py::test_prefers_weibo_cn_family_over_pc_even_with_fewer_fields` |
 | 闸门对每一路生效 + 疑问词 + 两词逃生门 | `test_retriever.py` 第一组 7 个用例 |
 | 单术语查询、指示代词、生僻词锚定、核心概念缺失即拒答 | `test_retriever.py` 第二组 8 个用例 |
 | 短文本不入库 | `test_chunk.py` / `test_incremental_index.py` |
+| 测试污染真实查询日志 | `test_query_log.py::test_tests_can_never_write_into_the_real_project_data_dir` |
+| 回归统计把警告文本当成用例数 | `test_regression.py::test_parse_counts_ignores_letters_in_warning_text` |
+
+### 测试绝不许写进真实 `data/`（踩过）
+
+查询日志默认开启，而 `test_ask` / `test_web` 用的是**默认** `Settings`，
+于是**跑一次全套测试就往真实查询日志里灌了几十条**——拒答率、延迟分位这些数字
+当场被自己的测试污染（症状很好认：日志里出现 `语料外的问题` 这种明显是测试用的查询，
+而且 p50 延迟是 0.0 ms）。
+
+`tests/conftest.py` 里加了一个会话级 fixture，从**三层**同时堵：
+
+1. 设环境变量 `DATA_DIR` / `QUERY_LOG_ENABLED`（新构造的 `Settings` 会读到）；
+2. 改默认单例的 `data_dir` / `query_log_enabled`；
+3. 需要测日志的用例自己构造 `Settings(data_dir=tmp_path)`。
+
+> 只改单例是**不够的**——这一点是实测出来的：测试里显式构造的 `Settings(...)`
+> 会重新读配置，照样指向真实目录。
+
+---
+
+## 回归与 CI
+
+主要资产是「一套能发现问题的评测」，但此前每次都得人工跑 `pytest` + `eval.py`
+再人眼看数字——**这个做法已经出过事**：第二轮优化里拒答从 1.000 掉到 0.750，
+是靠人肉比对才发现的。所以固化成一条命令：
+
+```bash
+python scripts/regression.py              # 跑测试 + 跑评测 + 和基线比，掉指标就退出码 1
+python scripts/regression.py --update     # 确认当前结果可接受后写成新基线
+python scripts/regression.py --skip-tests # 只跑评测（更快）
+```
+
+基线在 [eval/baseline.json](eval/baseline.json)，除指标外还带**参数指纹**
+（片段数 / embedding 模型 / 阈值 / 融合方式）：
+
+```json
+"metrics":     { "recall_at_k": 1.0, "mrr": 0.8847, "hit_rate": 1.0, "refusal_accuracy": 1.0 },
+"fingerprint": { "chunks": 1372, "embedder": "bge:BAAI/bge-small-zh-v1.5", "min_vector_score": 0.44 }
+```
+
+指纹不一致时**不判失败**，但会明确提示两组数字不可直接比——这补上了此前
+「索引/参数没有版本绑定、无法复现某次评测」的缺口。允许 0.005 的浮点抖动。
+
+> ⚠️ **真实语料的回归只能在本地跑。** `data/`（语料与索引）不入库，CI 上只有
+> `eval/qa_mock.jsonl`，而且 `EMBEDDING_ALLOW_DOWNLOAD=false` 会让它退化成哈希向量
+> ——那套数字与线上（BGE + 真实语料）**不可比**。所以
+> [.github/workflows/ci.yml](.github/workflows/ci.yml) 覆盖的是「代码没坏」，
+> 质量那条线靠本机 `regression.py`。
+
+---
+
+## 查询日志
+
+每次**真实**检索往 `data/logs/queries.jsonl` 追加一行：查询、来源（web/cli）、命中数、
+是否拒答、耗时、分词、**参数指纹**、前 N 条命中摘要。
+
+```bash
+python scripts/query_log.py            # 概览：拒答率、延迟分位、高频查询、来源分布
+python scripts/query_log.py --refused  # 只看拒答 —— bad case 的候选池
+python scripts/query_log.py --popular 20
+python scripts/query_log.py --source web --json
+```
+
+**为什么必须有**：`eval/qa_real.jsonl` 是读完语料手写的，拿它做优化等于
+**自己出题自己答题**——指标涨了也可能只是拟合了那几十道题。线上真实查询是唯一
+不受这层影响的证据来源；而 `--refused` 列出的每一条，都是「语料/检索没兜住」的
+具体候选，可以直接拿去补语料或补规则。
+
+两条硬约束（实现见 [src/pipeline/query_log.py](src/pipeline/query_log.py)）：
+
+* **写日志失败绝不影响检索**（任何异常都吞掉并打 warning，有测试盯着）；
+* **评测与排查脚本不进日志**：`pipeline/eval.py` 与 `explain_retrieval.py` 直接调
+  `retriever.search`，天然不经过日志；`ask()` / `retrieve()` 才写，并由调用方声明
+  `source`。否则自己的评测会把拒答率这类统计刷满。
+
+---
+
+## 版本控制
+
+仓库已初始化（git 2.55），首次提交 88 个文件。`.gitignore` 明确排除三类：
+
+| 排除 | 原因 |
+|---|---|
+| `.env`、`.env.bak*` | 含 Cookie / API Key |
+| `*.har` | **浏览器抓包里是完整 Cookie 请求头，等于账号会话** |
+| `data/` | 语料体积大且含他人 UGC；整目录排除（逐条列举容易漏） |
+
+`.gitattributes` 统一换行符为 **LF（含工作区）**——用 `* text=auto` 会在 Windows 上
+制造「整文件被改」的假 diff 和满屏 `LF will be replaced by CRLF` 警告，实测如此。
+
+> 本机的 git 身份是**占位值**（`lolita-rag <lolita-rag@localhost>`），换成你自己的：
+> ```bash
+> git config user.name "你的名字" && git config user.email "you@example.com"
+> ```
 
 ---
 

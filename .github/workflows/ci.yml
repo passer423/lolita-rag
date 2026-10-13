@@ -1,0 +1,56 @@
+name: CI
+
+# ⚠️ 这里只能测「代码没坏」，测不了「检索质量」。
+#
+# 真实语料与索引（`data/`）不入库，所以 CI 上只有 `eval/qa_mock.jsonl` 能跑；
+# 而且 `EMBEDDING_ALLOW_DOWNLOAD` 默认为 false，CI 里会退化成哈希向量兜底
+# —— 那套数字与线上（BGE + 真实语料）**不可比**。
+#
+# 真正衡量检索质量的那条线要在本机跑，语料和索引都在那儿：
+#     python scripts/regression.py
+# 详见 README 的「回归与 CI」一节。
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖（含 torch，首次约 3~5 分钟）
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: 单元测试
+        run: python -m pytest tests/ -q
+
+      - name: 构建 mock 索引（真实语料不入库）
+        run: python scripts/build_index.py
+
+      - name: 评测（mock 语料）
+        run: python scripts/eval.py --eval-path eval/qa_mock.jsonl
+
+      - name: 与 mock 基线对比（没有基线就跳过，并说明怎么生成）
+        run: |
+          if [ -f eval/baseline-mock.json ]; then
+            python scripts/regression.py \
+              --eval-path eval/qa_mock.jsonl \
+              --baseline eval/baseline-mock.json \
+              --skip-tests
+          else
+            echo "没有 eval/baseline-mock.json，跳过对比。"
+            echo "本机可选生成：DATA_DIR=<临时目录> python scripts/build_index.py \\"
+            echo "  && DATA_DIR=<临时目录> python scripts/regression.py \\"
+            echo "     --eval-path eval/qa_mock.jsonl --baseline eval/baseline-mock.json --update"
+          fi

@@ -60,6 +60,9 @@ def make_bundle(hits: list[Retrieved]) -> SimpleNamespace:
 
 
 def make_settings(tmp_path, **overrides) -> Settings:
+    # conftest 在整个测试会话里把 QUERY_LOG_ENABLED 设成 false（防止测试污染真实日志），
+    # 所以这里的用例要**显式**打开日志——这也正好说明它们是专门测日志的。
+    overrides.setdefault("query_log_enabled", True)
     return Settings(data_dir=tmp_path, **overrides)
 
 
@@ -211,3 +214,25 @@ def test_records_are_valid_jsonl_on_disk(tmp_path):
     write_record(build_record("中文查询", make_hits(2), settings=settings, source="web"), settings)
     line = settings.query_log_path.read_text(encoding="utf-8").strip()
     assert json.loads(line)["query"] == "中文查询"
+
+
+# ------------------------------------------------- 结构性防污染（这一条防的是未来的自己）
+
+def test_tests_can_never_write_into_the_real_project_data_dir():
+    """回归：测试绝不许写进项目真实的 ``data/``。
+
+    实测踩过这个坑：查询日志默认开启，而 ``test_ask`` / ``test_web`` 用的是**默认**
+    ``Settings``，跑一次全套测试就往真实日志里灌了几十条，把「真实使用」的统计
+    污染成了「测试噪声」。``conftest`` 里的会话级 fixture 从环境变量与单例两层
+    把 ``data_dir`` 指到临时目录，这条测试就是它的看门人。
+    """
+    from src.config import PROJECT_ROOT, settings as default_settings
+
+    real_data = PROJECT_ROOT / "data"
+    assert default_settings.data_dir != real_data, "默认单例仍指向真实 data/"
+    assert default_settings.query_log_enabled is False, "测试期间查询日志必须关掉"
+
+    # 新构造的 Settings 走的是环境变量，同样必须被隔离
+    fresh = Settings()
+    assert fresh.data_dir != real_data, "新构造的 Settings 仍指向真实 data/"
+    assert fresh.query_log_enabled is False

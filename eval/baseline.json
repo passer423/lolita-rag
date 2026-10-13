@@ -1,0 +1,29 @@
+{
+  "captured_at": "2026-10-13T11:54:55",
+  "eval_path": "eval/qa_real.jsonl",
+  "fingerprint": {
+    "chunks": 1372,
+    "embedder": "bge:BAAI/bge-small-zh-v1.5",
+    "fusion_mode": "weighted",
+    "min_vector_score": 0.44,
+    "min_bm25_ratio": 0.2,
+    "distinctive_df_ratio": 0.1,
+    "recall_k": 20
+  },
+  "metrics": {
+    "recall_at_k": 1.0,
+    "mrr": 0.8847,
+    "hit_rate": 1.0,
+    "refusal_accuracy": 1.0
+  },
+  "counts": {
+    "total": 32,
+    "scored": 24,
+    "refusal_total": 8
+  },
+  "tests": {
+    "passed": 223,
+    "failed": 0,
+    "returncode": 0
+  }
+}
