@@ -74,12 +74,12 @@ lolita-rag/
 │   │                        verify.py（运行时闸门：不达标就降级为原文摘录）、
 │   │                        judge.py（LLM-as-judge：语义忠实度）
 │   └── pipeline/            crawl / build_index / ask / eval / answer_eval /
-│                            query_log / real_queries / longtext / ablation /
-│                            regression / runtime 编排
+│                            query_log / real_queries / longtext / hot_posts /
+│                            ablation / regression / runtime 编排
 ├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
 ├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
 ├── data/                    raw / processed / index / cache / logs（均不入库）
-└── tests/                   单元测试（330 项，含真实数据打出来的回归用例）
+└── tests/                   单元测试（356 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
@@ -199,12 +199,47 @@ python scripts/serve.py --port 8765
 
 | 项目 | 说明 |
 |---|---|
-| 接口 | `GET /api/search?q=…&top_k=5&generate=false`、`GET /api/index`、`GET /api/health` |
+| 接口 | `GET /api/search?q=…&top_k=5&generate=false`、`GET /api/hot?days=1`、`GET /api/index`、`GET /api/health` |
 | 交互式文档 | `http://127.0.0.1:8000/docs` |
 | 依赖 | 无外部 CDN 资源，离线可用；索引在启动时装载一次（BGE 约 5 秒） |
 | 监听范围 | 默认只监听 `127.0.0.1`；加 `--host 0.0.0.0` 可局域网访问（等于把语料暴露给同网段） |
 | 语料提示 | 若索引来自 mock 语料，页面顶部会显示醒目提示，避免把演示数据当真实结果 |
 | 实现 | [src/web/app.py](src/web/app.py) + [src/web/static/index.html](src/web/static/index.html)，前端单文件、零外部依赖 |
+
+### 热门推荐栏：两个词都得先定义清楚
+
+搜索页顶部有一栏「热门推荐」，默认展示**当日**（= 语料最新那天）热帖，可切到近 3 天 / 近 7 天。
+它看着简单，但「当日」和「热门」两个词如果不定义清楚，做出来就是骗人的：
+
+**① 「当日」不能按墙上时钟算。** 实测本机跑的时候是 `2026-10-13`，而语料里最新一条是
+`2026-10-12 20:26` —— **按 `datetime.now()` 算，这一栏永远是空的**。所以锚点取
+**语料里最新一条的时间**，并且界面上**如实标出是哪一天**（「锚定语料最新 2026-10-12」），
+不写「今天」。语料是采集快照，用户有权知道它有多旧。
+
+**② 「热门」不能只看点赞。** 语料里混着约 25% 的域外帖（宽泛关键词搜进来的），
+实测「最近 3 天按点赞排」第一名是一条 **11601 赞的明星时装周帖**，与 Lolita 毫无关系。
+所以排序前先过一道领域相关性过滤，而这道过滤本身踩了两个坑：
+
+* **大小写**：词表里写 `lolita`，真实博文写 `LOLITA` —— 第一版不加 `lower()`，
+  把一批真·圈内帖误判成域外帖；
+* **短拉丁词的子串匹配**：`op` 会命中 `shop`、`cla` 会命中 `class` —— 实测因此把一条
+  粉丝圈帖送进了 3 天窗口的第 2 名。现在纯拉丁词按**词边界**匹配（用负向环视而不是
+  `\b`：Unicode 语义下中文也算 word 字符，`\bop\b` 匹配不到「的op是」）。
+
+另外还有两条经验性的护栏：**同作者最多 2 条**（实测一个品牌的转发抽奖能刷满整栏）、
+**少于 12 字或没有中文的帖子不要**（「OOTD」「ദ്ദി˶>ᴗo)」这种）。
+
+打分用 `点赞 + 2×评论 + 3×转发`（转发代表传播、评论代表讨论，都比一个赞更有信息量）。
+
+**③ 「用这个词检索」按钮上的词必须是语料里真实存在的。** 第一版按「语料里最罕见的内容词」
+挑建议查询，实测挑出来的是「800」「plq」「穿刚」—— 数字、拼音缩写、分词碎片，
+**罕见 ≠ 有主题性**。现在优先从领域词里挑（`图透` / `jsk` / `lo娘` / `出物`…），
+并且**排除 `df=0` 的词**：那种查询会被检索闸门直接拒答，点了按钮得到空结果比没有按钮更糟。
+
+> 接口会一并返回**筛选统计**（`skipped: {window, domain, too_short, duplicate_author}`）
+> 与**空栏原因**（`hint`）—— 否则用户看到空栏只会以为功能坏了。
+> 实现见 [src/pipeline/hot_posts.py](src/pipeline/hot_posts.py)，测试见
+> [tests/test_hot_posts.py](tests/test_hot_posts.py) 与 [tests/test_hot_api.py](tests/test_hot_api.py)。
 
 ---
 

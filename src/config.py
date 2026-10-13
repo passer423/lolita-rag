@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     reranker_top_n: int = 20        # 参与精排的候选数（其余保持原相对顺序接在后面）
     reranker_batch_size: int = 16
 
+    # ---------- 搜索页的热门推荐 ----------
+    # ⚠️ 锚点是**语料里最新一条的时间**，不是墙上时钟。语料是快照：实测本机跑的时候
+    # 是 10-13，而语料最新一条是 10-12 —— 按墙上时钟算「当日」会长期是空的。
+    # 界面上会如实标出锚定的是哪一天，不写「今日」。
+    hot_window_days: int = 1        # 默认「当日」（= 语料最新那天）；界面上可切 3/7 天
+    hot_limit: int = 8
+    hot_per_author_cap: int = 2     # 同作者最多几条（实测一个品牌的抽奖能刷满整栏）
+
     # ---------- LLM（OpenAI 兼容协议）----------
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com/v1"

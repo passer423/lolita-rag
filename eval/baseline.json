@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-13T15:02:26",
+  "captured_at": "2026-10-13T16:04:22",
   "eval_path": "eval/qa_real.jsonl",
   "fingerprint": {
     "chunks": 1642,
@@ -29,7 +29,7 @@
     "refusal_total": 8
   },
   "tests": {
-    "passed": 327,
+    "passed": 356,
     "failed": 0,
     "returncode": 0
   }

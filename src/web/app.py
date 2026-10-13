@@ -63,6 +63,34 @@ def _chunks(app: FastAPI) -> list:
     return list(getattr(getattr(app.state, "bundle", None), "chunks", []) or [])
 
 
+def _posts(app: FastAPI) -> list:
+    """读博文（而不是片段）——热门推荐要用互动数与发布时间，这些只在博文层。
+
+    按 mtime 缓存：一次解析 1478 条 JSONL 约十几毫秒，但没必要每个请求都做一遍；
+    语料重建后 mtime 会变，缓存自动失效。
+    """
+    path = app.state.settings.raw_posts_path
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    cache = app.state.posts_cache
+    if cache.get("mtime") != mtime:
+        from src.storage import load_posts
+
+        cache["posts"] = load_posts(path)
+        cache["mtime"] = mtime
+    return cache.get("posts") or []
+
+
+def _document_frequency(app: FastAPI):
+    """语料里的文档频率（给「建议查询」挑罕见词用）；拿不到就返回 None。"""
+    retriever = getattr(getattr(app.state, "bundle", None), "retriever", None)
+    bm25 = getattr(retriever, "bm25", None)
+    frequency = getattr(bm25, "document_frequency", None)
+    return frequency if callable(frequency) else None
+
+
 def create_app(
     *,
     bundle: Any | None = None,
@@ -76,6 +104,7 @@ def create_app(
     )
     app.state.settings = settings or default_settings
     app.state.bundle = bundle
+    app.state.posts_cache = {}
 
     # ------------------------------------------------------------------ 页面
     @app.get("/", include_in_schema=False)
@@ -115,6 +144,39 @@ def create_app(
             "min_bm25_ratio": settings_.min_bm25_ratio,
             "llm_enabled": settings_.llm_enabled,
         }
+
+    # ------------------------------------------------------------------ 热门推荐
+    @app.get("/api/hot")
+    def api_hot(
+        days: int | None = Query(None, ge=1, le=30, description="时间窗口（天）"),
+        limit: int | None = Query(None, ge=1, le=20, description="返回条数"),
+    ) -> dict:
+        """「当日热门」——锚定语料最新一天，不是墙上时钟（见 pipeline/hot_posts.py）。"""
+        from src.pipeline.hot_posts import select_hot_posts
+
+        settings_ = app.state.settings
+        posts = _posts(app)
+        selection = select_hot_posts(
+            posts,
+            window_days=days or settings_.hot_window_days,
+            limit=limit or settings_.hot_limit,
+            per_author_cap=settings_.hot_per_author_cap,
+            document_frequency=_document_frequency(app),
+        )
+        payload = selection.to_dict()
+        payload["total_posts"] = len(posts)
+        if not posts:
+            # 空栏必须说清为什么，否则用户会以为功能坏了
+            payload["hint"] = (
+                f"读不到博文语料（{settings_.raw_posts_path}）。"
+                "热门推荐基于采集到的原帖（要互动数与发布时间），不是索引片段。"
+            )
+        elif not payload["items"]:
+            payload["hint"] = (
+                f"语料最新一天（{selection.anchor_label}）里没有同时满足"
+                "「有互动、够长、与 Lolita 相关」条件的帖子。"
+            )
+        return payload
 
     # ------------------------------------------------------------------ 检索
     @app.get("/api/search")

@@ -70,6 +70,25 @@
   .answer .src .who { color: var(--muted); }
   .answer .src a { color: var(--accent); }
   .card:target { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 热门推荐 */
+  .hot { margin: 6px 0 18px; }
+  .hot-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .hot-head h2 { font-size: 15px; margin: 0; }
+  .hot-meta { color: var(--muted); font-size: 12.5px; }
+  .hot-window { margin-left: auto; display: inline-flex; gap: 4px; }
+  .hot-window button { padding: 3px 10px; font-size: 12.5px; border-radius: 999px; }
+  .hot-window button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .hot-list { display: grid; gap: 8px; }
+  .hot-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .hot-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+  .hot-author { color: var(--text); font-weight: 600; }
+  .hot-engage { margin-left: auto; }
+  .hot-text { margin: 6px 0 8px; font-size: 13.5px; line-height: 1.55; }
+  .hot-actions { display: flex; gap: 10px; align-items: center; font-size: 12.5px; }
+  .hot-actions button { padding: 3px 9px; font-size: 12.5px; border-radius: 6px; }
+  .hot-actions a { color: var(--accent); }
+  .hot-empty { color: var(--muted); font-size: 12.5px; }
   .card {
     background: var(--card); border: 1px solid var(--line); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 12px;
@@ -124,6 +143,20 @@
     只显示 <code>vector</code> 表示仅语义召回。
     <kbd>/</kbd> 聚焦输入框，<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 检索并生成。
   </p>
+
+  <!-- 热门推荐：锚定语料最新一天，不是墙上时钟（语料是快照，界面上如实标出是哪天） -->
+  <section id="hot" class="hot">
+    <div class="hot-head">
+      <h2>热门推荐</h2>
+      <span class="hot-meta" id="hot-meta">加载中…</span>
+      <span class="hot-window" id="hot-window">
+        <button type="button" data-days="1" class="on">当日</button>
+        <button type="button" data-days="3">近 3 天</button>
+        <button type="button" data-days="7">近 7 天</button>
+      </span>
+    </div>
+    <div id="hot-list" class="hot-list"></div>
+  </section>
 
   <section id="answer" class="answer" hidden></section>
   <section id="status" class="status" hidden></section>
@@ -242,8 +275,90 @@
     box.innerHTML = html;
   }
 
-  function renderHits(data) {
-    var box = $('results');
+  // ---------------------------------------------------------------- 热门推荐
+  //
+  // 「锚定语料最新一天」这个说法是刻意的：语料是采集快照，实测本机今天是 10-13，
+  // 而语料里最新一条是 10-12 —— 按墙上时钟算「今日」永远是空的。所以这里只显示
+  // 真实锚定的日期，不写「今天」。
+  var HOT_DAYS = 1;
+
+  function renderHot(data) {
+    var meta = $('hot-meta');
+    var list = $('hot-list');
+    if (!data.items || !data.items.length) {
+      meta.textContent = '';
+      list.innerHTML = '<div class="hot-empty">' + escapeHtml(data.hint || '暂时没有可推荐的热门帖。') + '</div>';
+      return;
+    }
+    meta.textContent = '锚定语料最新 ' + (data.anchor_label || '—') +
+      '（窗口 ' + data.window_days + ' 天，候选 ' + data.considered + ' 条）';
+    var parts = [];
+    for (var i = 0; i < data.items.length; i++) {
+      var it = data.items[i];
+      var q = it.suggested_query || '';
+      parts.push(
+        '<article class="hot-card">' +
+          '<div class="hot-line">' +
+            '<span class="rank">' + (i + 1) + '</span>' +
+            '<span class="hot-author">' + escapeHtml(it.author || '未知作者') + '</span>' +
+            '<span>' + escapeHtml(it.created_at) + '</span>' +
+            '<span class="hot-engage">♥ ' + Number(it.likes || 0) +
+              ' · 💬 ' + Number(it.comments || 0) +
+              ' · ↻ ' + Number(it.reposts || 0) + '</span>' +
+          '</div>' +
+          '<div class="hot-text">' + escapeHtml(it.text) + '</div>' +
+          '<div class="hot-actions">' +
+            (q ? '<button type="button" class="hot-search" data-q="' + escapeHtml(q) +
+                 '">用「' + escapeHtml(q) + '」检索</button>' : '') +
+            (it.url ? '<a href="' + encodeURI(it.url) +
+                 '" target="_blank" rel="noopener noreferrer">原博</a>' : '') +
+          '</div>' +
+        '</article>'
+      );
+    }
+    list.innerHTML = parts.join('');
+  }
+
+  async function loadHot(days) {
+    if (days) HOT_DAYS = days;
+    var meta = $('hot-meta');
+    meta.textContent = '加载中…';
+    try {
+      var resp = await fetch('/api/hot?days=' + HOT_DAYS);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      renderHot(await resp.json());
+    } catch (err) {
+      meta.textContent = '';
+      $('hot-list').innerHTML =
+        '<div class="hot-empty">热门推荐读取失败：' + escapeHtml(err.message) + '</div>';
+    }
+  }
+
+  function bindHot() {
+    var box = $('hot-window');
+    if (box) {
+      box.addEventListener('click', function (ev) {
+        var btn = ev.target && ev.target.closest ? ev.target.closest('button[data-days]') : null;
+        if (!btn) return;
+        var all = box.querySelectorAll('button');
+        for (var i = 0; i < all.length; i++) all[i].classList.remove('on');
+        btn.classList.add('on');
+        loadHot(parseInt(btn.getAttribute('data-days'), 10));
+      });
+    }
+    // 「用某词检索」：把词填进输入框并直接搜，词本身就显示在按钮上（不藏着）
+    $('hot-list').addEventListener('click', function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('button.hot-search') : null;
+      if (!btn) return;
+      var q = btn.getAttribute('data-q') || '';
+      if (!q) return;
+      $('q').value = q;
+      runSearch(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  function renderHits(data) {    var box = $('results');
     if (!data.hits || !data.hits.length) {
       box.innerHTML = '<div class="empty">没有检索到相关内容。<br>' +
         '这通常意味着语料里确实没有，或者需要放宽条件：调大 <code>RECALL_K</code>，' +
@@ -336,6 +451,8 @@
   });
 
   loadIndexInfo();
+  bindHot();
+  loadHot(HOT_DAYS);
 })();
 </script>
 </body>
