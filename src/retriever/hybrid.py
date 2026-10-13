@@ -48,14 +48,18 @@ class HybridRetriever:
         bm25: BM25Retriever,
         vector_search,
         settings: Settings | None = None,
+        reranker=None,
     ):
         """``vector_search`` 是一个 ``(query, top_k) -> list[Retrieved]`` 的可调用对象。
 
         这样 HybridRetriever 不需要知道 embedding 与向量库的任何细节，便于测试。
+
+        ``reranker`` 可注入（``None`` 表示不精排）；只在**闸门之后**参与，见 `search`。
         """
         self.bm25 = bm25
         self.vector_search = vector_search
         self.settings = settings or default_settings
+        self.reranker = reranker
         # 片段分词结果按需计算并缓存。不直接复用 BM25 索引里的分词，
         # 是为了让本类仍然只依赖 bm25 的 ``search(query, top_k)`` 一个接口
         # （测试里可以注入任意假实现）。
@@ -264,4 +268,8 @@ class HybridRetriever:
             ]
         for hit in ordered:
             hit.source = "+".join(sorted(hit.ranks)) or "hybrid"
+        # 精排放在**闸门之后**：它只重排已经通过判定的候选，因此拒答行为完全不变
+        # （空仍是空），召回上限也不变——最差只是顺序不同。见 retriever/reranker.py。
+        if self.reranker is not None and self.reranker.enabled:
+            return self.reranker.rerank(query, ordered, top_k)
         return ordered[:top_k]

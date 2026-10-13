@@ -12,6 +12,7 @@ from src.config import Settings, settings as default_settings
 from src.embedding.embedder import BaseEmbedder, EmbeddingCache, get_embedder
 from src.retriever.bm25 import BM25Retriever
 from src.retriever.hybrid import HybridRetriever
+from src.retriever.reranker import Reranker
 from src.schema import Chunk, Retrieved
 from src.storage import load_chunks
 from src.vectorstore import build_vector_store
@@ -95,7 +96,10 @@ def load_retriever(settings: Settings | None = None) -> RetrieverBundle:
 
     cache = EmbeddingCache(settings.embedding_cache_path, embedder)
     bm25 = BM25Retriever(chunks, min_ratio=settings.min_bm25_ratio)
-    retriever = HybridRetriever(bm25, make_vector_search(cache, store), settings)
+    # 精排默认关闭；开启时才构造（会加载约 1GB 的 cross-encoder）。加载失败由 Reranker
+    # 自己降级成「不精排」，不会影响检索可用性。
+    reranker = Reranker(settings) if settings.reranker_enabled else None
+    retriever = HybridRetriever(bm25, make_vector_search(cache, store), settings, reranker)
     return RetrieverBundle(
         retriever=retriever,
         chunks=chunks,

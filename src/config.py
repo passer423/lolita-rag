@@ -64,6 +64,17 @@ class Settings(BaseSettings):
     daily_pages: int = 2
     daily_lock_stale_hours: float = 6.0    # 锁超过该时长视为陈旧，允许被接管
 
+    # ---------- 精排（reranker）----------
+    # 混合检索是双塔式的，查询与片段从不互相「看」，所以对「同话题但答非所问」的片段
+    # 分不开。cross-encoder 精排判断力强得多，但要额外下载约 1GB 模型、CPU 上每查询
+    # 多花几百毫秒——所以**默认关闭**，由使用者取舍。
+    #
+    # 它只在**闸门之后**重排已通过的候选：拒答行为不变（空仍是空），召回上限不变。
+    reranker_enabled: bool = False
+    reranker_model: str = "BAAI/bge-reranker-base"
+    reranker_top_n: int = 20        # 参与精排的候选数（其余保持原相对顺序接在后面）
+    reranker_batch_size: int = 16
+
     # ---------- LLM（OpenAI 兼容协议）----------
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com/v1"
