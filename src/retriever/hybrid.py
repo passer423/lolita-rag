@@ -256,14 +256,23 @@ class HybridRetriever:
         # 向量路只调用一次：既用于本路召回，也用于判断其它路的命中是否有语义支持。
         vector_all: list[Retrieved] = []
         vector_ok = True
+        # ⚠️「召回窗口」与「语义支持查询窗口」必须分开，这是踩出来的 bug：
+        #   语料从 1642 涨到 1672 段后，「藤上春有哪几种颜色？」的标注帖仍是 BM25 第 1 名，
+        #   却被新增片段挤出了向量 top-20 —— 它的相似度**查不到**、被当成 0，
+        #   「语义支持」判定失败，整题从第 1 名变成返回空。
+        #   它自己的相似度没变，变的是「还在不在窗口里」；而语料现在每晚都在涨，
+        #   这种窗口边缘的误杀会反复出现。
+        #   所以：参与**融合**的仍只有前 recall_k 条（不改变既有融合行为），
+        #   但**语义支持**的查询用一个宽得多的窗口。
+        support_k = max(recall_k, self.settings.semantic_support_k)
         try:
-            vector_all = list(self.vector_search(query, recall_k))
+            vector_all = list(self.vector_search(query, support_k))
         except Exception as exc:  # noqa: BLE001 - 向量路挂了仍应能返回 BM25 结果
             vector_ok = False
             logger.warning("向量召回失败（%s），本次仅使用 BM25 结果", exc)
         vector_scores = {hit.chunk.chunk_id: hit.score for hit in vector_all}
 
-        vector_hits = [hit for hit in vector_all if hit.score >= floor]
+        vector_hits = [hit for hit in vector_all[:recall_k] if hit.score >= floor]
         bm25_hits = list(self.bm25.search(query, recall_k))
         if vector_ok:
             bm25_hits = [

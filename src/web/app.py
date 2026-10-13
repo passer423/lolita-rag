@@ -127,6 +127,7 @@ def create_app(
         chunks = _chunks(app)
         manifest = read_manifest(settings_)
         source = str(manifest.get("source") or "")
+        manifest_chunks = int(manifest.get("chunks") or 0)
         return {
             "posts": len({chunk.post_id for chunk in chunks}),
             "chunks": len(chunks),
@@ -137,6 +138,10 @@ def create_app(
             "source": source,
             # 明确告诉使用者当前索引是什么语料，避免把 mock 演示数据当成真实结果
             "is_mock": source == "mock",
+            # 每日定时更新会重写索引，但**本进程是启动时装载的**——不重启就一直用旧索引。
+            # 实测踩过：夜间更新完成后页面显示的仍是旧片段数。这里把差异暴露出来。
+            "manifest_chunks": manifest_chunks,
+            "stale": bool(manifest_chunks and manifest_chunks != len(chunks)),
             "top_k": settings_.top_k,
             "recall_k": settings_.recall_k,
             "fusion_mode": settings_.fusion_mode,

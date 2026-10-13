@@ -124,6 +124,8 @@
   采集真实语料后运行 <code>python scripts/build_index.py --source raw</code> 重建即可。
 </div>
 
+<div id="stale-banner" class="banner" hidden></div>
+
 <main>
   <form id="search-form">
     <input id="q" type="search" placeholder="输入问题或关键词，例如：带亮片的裙子应该怎么洗？" autocomplete="off">
@@ -400,6 +402,15 @@
         ' · 模型 ' + (d.embedder || '-') + ' · 构建于 ' + (d.built_at || '-');
       $('topk').value = String(d.top_k || 5);
       $('mock-banner').hidden = !d.is_mock;
+      // 索引在磁盘上已更新、但本进程还是启动时装载的那份 —— 必须说出来，
+      // 否则夜间定时更新之后，页面会一直拿旧索引回答（实测踩过）。
+      var stale = $('stale-banner');
+      stale.hidden = !d.stale;
+      if (d.stale) {
+        stale.innerHTML = '⚠️ 索引已在磁盘上更新（' + d.manifest_chunks +
+          ' 个片段），但本服务装载的还是启动时那份（' + d.chunks +
+          ' 个片段）。重启服务即可装载新索引：<code>python scripts/serve.py</code>';
+      }
       if (!d.llm_enabled) {
         $('btn-generate').title = '未配置 LLM_API_KEY，将返回原文摘录（检索结果不受影响）';
       }

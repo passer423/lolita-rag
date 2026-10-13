@@ -134,6 +134,36 @@ def test_index_info_does_not_flag_real_corpus(tmp_path):
     assert data["source"].startswith("data")
 
 
+def test_index_info_flags_a_stale_index(tmp_path):
+    """每日定时更新会重写索引，但服务是启动时装载的——不重启就一直用旧的。
+
+    实测踩过：夜间更新跑完，页面上的片段数还是旧的，看起来像「自动更新没生效」。
+    """
+    manifest_dir = tmp_path / "index"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "manifest.json").write_text(
+        json.dumps({"source": "data\\raw\\posts.jsonl", "chunks": 99}), encoding="utf-8"
+    )
+    client, _ = make_client(make_hits(2), data_dir=tmp_path)   # 内存里只有 2 个片段
+    with client:
+        data = client.get("/api/index").json()
+
+    assert data["chunks"] == 2
+    assert data["manifest_chunks"] == 99
+    assert data["stale"] is True
+
+
+def test_index_info_is_not_stale_when_counts_match(tmp_path):
+    manifest_dir = tmp_path / "index"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "manifest.json").write_text(
+        json.dumps({"source": "data\\raw\\posts.jsonl", "chunks": 2}), encoding="utf-8"
+    )
+    client, _ = make_client(make_hits(2), data_dir=tmp_path)
+    with client:
+        assert client.get("/api/index").json()["stale"] is False
+
+
 def test_search_returns_ranked_hits_and_highlight_terms():
     client, _ = make_client(make_hits(3))
     with client:

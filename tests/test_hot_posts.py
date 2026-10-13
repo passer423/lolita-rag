@@ -106,6 +106,23 @@ def test_anchor_is_the_corpus_latest_time_not_wall_clock():
     assert all(item.post.id != "old" for item in selection.items), "旧帖不能冒充当日"
 
 
+def test_window_is_calendar_days_not_a_rolling_24_hours():
+    """界面写「当日」，列表里就不该混进昨晚的帖子——实测第一版用滚动 24 小时翻过车。
+
+    锚点是 10-12 20:00 时：10-12 凌晨 01:00 的帖子算「当日」，10-11 23:00 的不算。
+    """
+    posts = [
+        post("early_same_day", when="2026-10-12 01:00", likes=1, author="A"),
+        post("late_previous_day", when="2026-10-11 23:00", likes=99, author="B"),
+        post("anchor", when="2026-10-12 20:00", likes=5, author="C"),
+    ]
+    selection = select_hot_posts(posts, window_days=1)
+
+    ids = [item.post.id for item in selection.items]
+    assert "early_same_day" in ids and "anchor" in ids
+    assert "late_previous_day" not in ids, "滚动 24 小时会把它漏进来"
+
+
 def test_window_days_widens_the_candidate_pool():
     # 作者各不相同：同作者超过 per_author_cap 会被限量规则挡掉，那是另一条用例的事
     posts = [

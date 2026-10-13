@@ -27,7 +27,7 @@ import html
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -322,6 +322,8 @@ def select_hot_posts(
 
     锚点用**语料里的最新时间**而不是墙上时钟——语料是快照，用它自己的时间轴才对得上；
     界面上再如实标出是哪一天（见模块文档）。
+
+    窗口按**自然日**算：``days=1`` 是锚点当天 00:00 起，``days=3`` 是含锚点在内往前 3 天。
     """
     terms = tuple(domain_terms) if domain_terms is not None else load_domain_terms()
     selection = HotSelection(window_days=window_days)
@@ -348,7 +350,11 @@ def select_hot_posts(
     anchor = max(when for _, when in dated)
     selection.anchor = anchor
     selection.latest_post_at = anchor
-    cutoff = anchor - timedelta(days=window_days)
+    # 按**自然日**算窗口，而不是「最近 24 小时」：界面上写的是「当日」，列表里就不该
+    # 混进昨天晚上的帖子（实测第一版用滚动 24 小时，切换按钮说「当日」却混着前一天）。
+    # days=1 → 锚点当天 00:00 起；days=3 → 含锚点在内往前数 3 个自然日。
+    start_day = anchor.date() - timedelta(days=max(0, window_days - 1))
+    cutoff = datetime.combine(start_day, time.min, tzinfo=TZ)
 
     skipped = {"window": 0, "domain": 0, "too_short": 0, "duplicate_author": 0}
     candidates: list[HotPost] = []
