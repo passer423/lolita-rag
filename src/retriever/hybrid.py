@@ -99,7 +99,30 @@ class HybridRetriever:
                 absent.add(token)
             elif count <= limit:
                 distinctive.add(token)
+            # 计数为 0 或 <= limit 之外的词（即太常见）都不进 distinctive
         return distinctive, absent
+
+    def _too_much_absent(self, content: set[str], absent: set[str], distinctive: set[str]) -> bool:
+        """判断这条查询是不是**问到了语料之外**，应当直接拒答。
+
+        两条规则，都是被真实数据打出来的：
+
+        1. 有词在语料里根本不存在（df=0），且**没有任何有区分度的词能锚定**它
+           —— 原来的规则。
+        2. **多数内容词都不存在**（默认 ≥ 1/2）—— 补全长博文后语料从 1372 涨到 1642 段，
+           实测暴露的新问题：「考研数学该怎么复习？」里只有「考研」在语料里出现过 **1 次**
+           （还在一篇无关的粉丝长文里），却被当成锚点，于是返回了一篇个人随笔；
+           「飞机票怎么改签？」同理（改签 df=2）。
+
+        第 2 条阈值取 0.5 是**量出来的**：32 道评测题里 24 道正例的最大缺失比只有 0.33
+        （「藤上春有哪几种颜色？」里「藤上/春有」是分词噪声），所以 0.5 不误伤任何正例，
+        同时挡住上面那两类域外提问。
+        """
+        if not content:
+            return False
+        if absent and not distinctive:
+            return True
+        return len(absent) / len(content) >= self.settings.absent_majority_ratio
 
     def _has_content_evidence(
         self,
@@ -222,9 +245,11 @@ class HybridRetriever:
         # ——因为整个语料都是 lolita 内容，向量下限在这种「在域内但无答案」的提问上失效。
         # 唯一可靠的信号就是「核心概念不存在」，所以直接返回空，交给生成层说资料不足。
         # 反例：缺「亮片」（df=0）但还有「烫金」（df=1）可以锚定 —— 那种情况**不**拒答。
-        if content and absent and not distinctive:
+        if self._too_much_absent(content, absent, distinctive):
             logger.debug(
-                "查询的核心概念在语料中不存在 %s，其余内容词都过于常见，直接返回空", sorted(absent)
+                "查询问到语料之外（缺失概念 %s，有区分度的词 %s），直接返回空",
+                sorted(absent),
+                sorted(distinctive),
             )
             return []
 
