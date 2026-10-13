@@ -72,7 +72,7 @@ lolita-rag/
 ├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
 ├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
 ├── data/                    raw / processed / index / cache / logs（均不入库）
-└── tests/                   单元测试（223 项，含真实数据打出来的回归用例）
+└── tests/                   单元测试（224 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
