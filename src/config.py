@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +23,28 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
+
+    # 这些字段**绝不能出现在日志、异常、测试报告里**。默认的 dataclass/pydantic repr
+    # 会把值原样打出来——实测踩过：pytest 失败时会把 fixture 的取值连同报告一起打印，
+    # 于是完整的 WEIBO_COOKIE 直接落到了终端（等于账号会话）。
+    SECRET_FIELDS: ClassVar[tuple[str, ...]] = ("weibo_cookie", "llm_api_key")
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self._masked_summary()})"
+
+    def __str__(self) -> str:  # pragma: no cover - 与 repr 同源，保留一致性
+        return self.__repr__()
+
+    def _masked_summary(self) -> str:
+        parts: list[str] = []
+        for name in type(self).model_fields:
+            value = getattr(self, name, None)
+            if name in self.SECRET_FIELDS:
+                length = len(str(value or "").strip())
+                parts.append(f"{name}={'<未设置>' if not length else f'<已设置 {length} 字符>'}")
+            else:
+                parts.append(f"{name}={value!r}")
+        return ", ".join(parts)
 
     # ---------- 微博采集 ----------
     weibo_cookie: str = ""

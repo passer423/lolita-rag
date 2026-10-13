@@ -53,4 +53,27 @@ def test_logs_and_lock_paths_follow_data_dir(tmp_path):
     settings = Settings(data_dir=tmp_path)
     assert settings.logs_dir == tmp_path / "logs"
     assert settings.history_path == tmp_path / "logs" / "history.jsonl"
+    assert settings.query_log_path == tmp_path / "logs" / "queries.jsonl"
     assert settings.lock_path == tmp_path / ".daily_update.lock"
+
+
+def test_settings_repr_never_leaks_secrets(tmp_path):
+    """密钥绝不能出现在 repr / str 里。
+
+    实测踩过（意外发现的）：pytest 失败时会把 fixture 的取值连同报告一起打印，
+    而默认 repr 会把完整的 ``WEIBO_COOKIE`` 原样打出来——那等于把账号会话写进终端、
+    日志或任何被贴出去的报错信息里。
+    """
+    settings = Settings(
+        data_dir=tmp_path,
+        weibo_cookie="SUB=super-secret-session-value",
+        llm_api_key="sk-abcdef123456",
+    )
+    for text in (repr(settings), str(settings)):
+        assert "super-secret-session-value" not in text
+        assert "sk-abcdef123456" not in text
+        assert "weibo_cookie=<已设置 30 字符>" in text
+        assert "llm_api_key=<已设置 15 字符>" in text
+    assert "llm_api_key=<未设置>" in repr(Settings(data_dir=tmp_path, llm_api_key=""))
+    # 非密钥字段照常可读，否则排查问题会变难
+    assert "min_vector_score=0.44" in repr(settings)

@@ -1,0 +1,57 @@
+"""闸门消融：逐个关掉检索层的判定，看指标掉不掉——**掉才说明它承重**。
+
+为什么需要：闸门是我在真实数据上一条条加的，但从没验证过哪条是真的承重。
+如果某条关掉后指标不动，它就是在白增加复杂度。
+
+```bash
+python scripts/ablate_gates.py
+python scripts/ablate_gates.py --eval-path eval/qa_real.jsonl --json
+```
+
+⚠️ 只改运行期对象，跑完自动恢复，不写盘、不改索引。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+import _bootstrap  # noqa: F401
+from _bootstrap import setup_logging
+
+from src.config import PROJECT_ROOT, settings
+from src.pipeline.ablation import render, run_ablation
+from src.pipeline.runtime import IndexMissingError, load_retriever
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="检索闸门消融实验")
+    parser.add_argument("--eval-path", default=str(PROJECT_ROOT / "eval" / "qa_real.jsonl"))
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--log-level", default=None)
+    args = parser.parse_args(argv)
+
+    setup_logging(args.log_level or "WARNING")
+
+    try:
+        bundle = load_retriever(settings)
+    except IndexMissingError as exc:
+        print(f"[错误] {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        results = run_ablation(args.eval_path, settings, bundle=bundle)
+    except Exception as exc:  # noqa: BLE001 - 评测集与语料不匹配等
+        print(f"[错误] {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps([item.to_dict() for item in results], ensure_ascii=False, indent=2))
+    else:
+        print(render(results))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
