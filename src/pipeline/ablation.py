@@ -24,7 +24,7 @@ import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Sequence
 
 from src.config import Settings, settings as default_settings
 from src.pipeline.eval import evaluate
@@ -206,4 +206,113 @@ def render(results: list[AblationResult]) -> str:
             lines.append(f"    · {change}")
         if len(item.changed) > 8:
             lines.append(f"    …… 另有 {len(item.changed) - 8} 题")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------- 日志回放
+#
+# 评测集只有 32 题，覆盖不到长尾查询；而 `MIN_BM25_RATIO` 恰恰是为长尾设的。
+# 所以真实查询日志才是「能不能删」的最终依据。
+#
+# 难点在于**日志没有标注**（没有 ground truth）。所以这里不比指标，比**行为变化**：
+# 关掉某条闸门后，多少条真实查询的返回结果集变了、多少条从「有结果」变成「拒答」。
+# 如果一条闸门在几百条真实查询上都不改变任何结果，那它就是真的可以删。
+
+
+@dataclass(slots=True)
+class ReplayResult:
+    name: str
+    description: str
+    queries: int = 0
+    changed_queries: int = 0
+    newly_refused: int = 0        # 关掉后从「有结果」变成「没有结果」
+    newly_returned: int = 0       # 关掉后从「没有结果」变成「有结果」
+    examples: list[str] = field(default_factory=list)
+
+    @property
+    def changed_rate(self) -> float | None:
+        return None if not self.queries else round(self.changed_queries / self.queries, 4)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "queries": self.queries,
+            "changed_queries": self.changed_queries,
+            "newly_refused": self.newly_refused,
+            "newly_returned": self.newly_returned,
+            "examples": self.examples,
+            "changed_rate": self.changed_rate,
+        }
+
+
+def _result_signature(bundle: RetrieverBundle, query: str, top_k: int | None) -> tuple[str, ...]:
+    hits = bundle.retriever.search(query, top_k=top_k)
+    return tuple(hit.chunk.chunk_id for hit in hits)
+
+
+def replay_queries(
+    queries: Sequence[str],
+    settings: Settings | None = None,
+    *,
+    bundle: RetrieverBundle | None = None,
+    top_k: int | None = None,
+    example_limit: int = 5,
+) -> list[ReplayResult]:
+    """把一批**真实查询**在所有消融配置下重放一遍，比较结果集变化（不需要标注）。"""
+    settings = settings or default_settings
+    bundle = bundle or load_retriever(settings)
+    unique: list[str] = []
+    for query in queries:
+        text = str(query or "").strip()
+        if text and text not in unique:
+            unique.append(text)
+
+    baseline = {query: _result_signature(bundle, query, top_k) for query in unique}
+    results: list[ReplayResult] = []
+
+    for name, description, mutate in build_configs():
+        with _temporary(settings, bundle, lambda: mutate(settings, bundle)):
+            replay = ReplayResult(name=name, description=description, queries=len(unique))
+            for query in unique:
+                after = _result_signature(bundle, query, top_k)
+                before = baseline[query]
+                if after == before:
+                    continue
+                replay.changed_queries += 1
+                if before and not after:
+                    replay.newly_refused += 1
+                elif not before and after:
+                    replay.newly_returned += 1
+                if len(replay.examples) < example_limit:
+                    replay.examples.append(
+                        f"{query[:26]}：{len(before)} 条 → {len(after)} 条"
+                    )
+            results.append(replay)
+    return results
+
+
+def render_replay(results: Sequence[ReplayResult]) -> str:
+    if not results or not results[0].queries:
+        return "日志里没有可回放的查询。先真实用几次（网页界面或 ask.py），再来跑这一项。"
+    total = results[0].queries
+    lines = [
+        f"回放 {total} 条真实查询（无标注，因此比的是**行为变化**，不是指标）：",
+        "",
+        f"{'关掉的闸门':<34}{'结果集变化':>12}{'新增拒答':>10}{'新增返回':>10}",
+    ]
+    for item in results:
+        rate = "—" if item.changed_rate is None else f"{item.changed_rate:.1%}"
+        lines.append(
+            f"{item.description:<34}{item.changed_queries:>6} ({rate})"
+            f"{item.newly_refused:>10}{item.newly_returned:>10}"
+        )
+    lines.append("")
+    for item in results:
+        if item.changed_queries == 0:
+            lines.append(f"▸ 关掉「{item.description}」：{total} 条真实查询**结果完全没变** → 可以删")
+        else:
+            lines.append(f"▸ 关掉「{item.description}」：{item.changed_queries} 条变化")
+            for example in item.examples:
+                lines.append(f"    · {example}")
     return "\n".join(lines)

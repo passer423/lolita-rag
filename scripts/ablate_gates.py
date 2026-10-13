@@ -28,6 +28,12 @@ from src.pipeline.runtime import IndexMissingError, load_retriever
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="检索闸门消融实验")
     parser.add_argument("--eval-path", default=str(PROJECT_ROOT / "eval" / "qa_real.jsonl"))
+    parser.add_argument(
+        "--from-log",
+        action="store_true",
+        help="改为回放真实查询日志（无标注，比的是行为变化；日志路径见 QUERY_LOG_*）",
+    )
+    parser.add_argument("--limit", type=int, default=200, help="--from-log 时最多回放多少条")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--log-level", default=None)
     args = parser.parse_args(argv)
@@ -39,6 +45,19 @@ def main(argv: list[str] | None = None) -> int:
     except IndexMissingError as exc:
         print(f"[错误] {exc}", file=sys.stderr)
         return 2
+
+    if args.from_log:
+        from src.pipeline.ablation import render_replay, replay_queries
+        from src.pipeline.query_log import read_records
+
+        records = read_records(settings.query_log_path, limit=args.limit)
+        queries = [str(row.get("query") or "") for row in records]
+        results = replay_queries(queries, settings, bundle=bundle)
+        if args.json:
+            print(json.dumps([item.to_dict() for item in results], ensure_ascii=False, indent=2))
+        else:
+            print(render_replay(results))
+        return 0
 
     try:
         results = run_ablation(args.eval_path, settings, bundle=bundle)

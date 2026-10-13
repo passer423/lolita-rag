@@ -15,6 +15,7 @@ from src.pipeline.ablation import (
     _temporary,
     build_configs,
     render,
+    replay_queries,
     run_ablation,
 )
 from src.retriever import hybrid as hybrid_module
@@ -167,3 +168,57 @@ def test_ablation_marks_a_gate_as_not_load_bearing_when_nothing_changes(tmp_path
     for item in results[1:]:
         assert item.changed == []
     assert "不承重" in render(results)
+
+
+# --------------------------------------------------------------- 日志回放（无标注）
+
+class GateSensitiveRetriever:
+    """结果随某个闸门取值变化——用来验证「回放能发现行为变化」。"""
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.bm25 = SimpleNamespace(min_ratio=0.2)
+
+    def search(self, question, top_k=None, recall_k=None):
+        # 向量下限被消融成 0.0 时，这条查询会从「有结果」变成「拒答」
+        if self.settings.min_vector_score == 0.0:
+            return []
+        return make_hits()
+
+
+def test_replay_reports_behaviour_changes_without_labels(tmp_path):
+    settings = Settings(data_dir=tmp_path, min_vector_score=0.44)
+    bundle = SimpleNamespace(
+        retriever=GateSensitiveRetriever(settings),
+        chunks=[hit.chunk for hit in make_hits()],
+        embedder=None,
+    )
+
+    results = replay_queries(["柄图是什么", "茶会礼仪", "柄图是什么"], settings, bundle=bundle)
+
+    # 去重后是 2 条查询
+    by_name = {item.name: item for item in results}
+    vector_floor = by_name["no_vector_floor"]
+    assert vector_floor.queries == 2
+    assert vector_floor.changed_queries == 2
+    assert vector_floor.newly_refused == 2
+    assert vector_floor.examples
+
+    # 别的闸门不影响这个假检索器 → 0 变化
+    assert by_name["no_bm25_ratio"].changed_queries == 0
+    assert settings.min_vector_score == 0.44, "回放结束也要恢复现场"
+
+
+def test_replay_render_says_which_gate_can_be_deleted():
+    from src.pipeline.ablation import ReplayResult, render_replay
+
+    text = render_replay(
+        [
+            ReplayResult(name="no_bm25_ratio", description="关掉 BM25 相对下限", queries=120),
+        ]
+    )
+    assert "120 条真实查询" in text
+    assert "可以删" in text
+
+    empty = render_replay([ReplayResult(name="x", description="y", queries=0)])
+    assert "没有可回放的查询" in empty
