@@ -79,7 +79,7 @@ lolita-rag/
 ├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
 ├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
 ├── data/                    raw / processed / index / cache / logs（均不入库）
-└── tests/                   单元测试（327 项，含真实数据打出来的回归用例）
+└── tests/                   单元测试（330 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
@@ -934,10 +934,10 @@ python scripts/regression.py --with-llm   # 生成层评测改走真模型（默
 （片段数 / embedding 模型 / 阈值 / 融合方式），并且**检索指标与生成层指标一起比**：
 
 ```json
-"metrics":        { "recall_at_k": 1.0, "mrr": 0.8847, "hit_rate": 1.0, "refusal_accuracy": 1.0 },
+"metrics":        { "recall_at_k": 0.9167, "mrr": 0.8523, "hit_rate": 0.9167, "refusal_accuracy": 0.875 },
 "answer_metrics": { "citation_valid_rate": 1.0, "citation_coverage": 1.0, "unsupported_rate": 0.0,
                     "refusal_rate_without_context": 1.0, "problem_count": 0.0 },
-"fingerprint":    { "chunks": 1372, "embedder": "bge:BAAI/bge-small-zh-v1.5", "min_vector_score": 0.44 }
+"fingerprint":    { "chunks": 1642, "embedder": "bge:BAAI/bge-small-zh-v1.5", "min_vector_score": 0.44 }
 ```
 
 指纹不一致时**不判失败**，但会明确提示两组数字不可直接比——这补上了此前
@@ -952,6 +952,37 @@ python scripts/regression.py --with-llm   # 生成层评测改走真模型（默
 > ——那套数字与线上（BGE + 真实语料）**不可比**。所以
 > [.github/workflows/ci.yml](.github/workflows/ci.yml) 覆盖的是「代码没坏」，
 > 质量那条线靠本机 `regression.py`。
+
+### CI 跑最低支持版本（Python 3.11）——这抓到了本机永远看不见的问题
+
+本仓库**要求 Python 3.11+**，而 CI 固定在 **3.11**（最低支持版本）。开发机通常是更新的
+版本，于是存在一类**本机永远发现不了**的问题：3.12 通过 PEP 701 放宽了 f-string 的书写限制。
+
+首次推送到 GitHub 时 CI 就红了，而且报的是**退出码 2（收集失败）**，看起来完全不像语法问题。
+根因是 `src/generator/llm.py` 里一行：
+
+```python
+f"[{index}] {re.sub(r'\n+', ' ', hit.chunk.text.strip())}"
+```
+
+表达式里带反斜杠，**3.11 及以前直接 `SyntaxError`**。因为它是**导入期**错误，
+所有测试模块收集失败——而本机 3.13 跑得好好的。
+
+> 同一类坑还有：嵌套 f-string 复用相同的引号。`pyproject.toml` 里 ruff 的
+> `target-version = "py310"` 本来能报出来，但本机没装 ruff，所以也没拦住。
+
+补了三道防线，都是为了**不依赖「记得在低版本上试一次」**：
+
+| 防线 | 作用 |
+|---|---|
+| [tests/test_python_compat.py](tests/test_python_compat.py) | 用 tokenizer 静态扫描全部源码，抓「表达式含反斜杠」「嵌套 f-string 复用相同引号」两类 3.12+ 写法；**带正反双向对照**（必须能抓出真实踩过的写法，且不误报合法写法）。本机 3.12+ 就能拦住 |
+| CI 增加 `compileall` 语法自检 | 让语法问题一眼可见，而不是以莫名其妙的「退出码 2」出现 |
+| CI 失败时输出 check-run 注解 | 把 `FAILED` / 断言行汇总成注解，在 Checks 页面直接定位（日志 API 要管理员权限，普通查看者读不到） |
+
+> 这一轮还顺带修掉一个**测试设计缺陷**：上面那个静态检查在 Python 3.12 以下无法实现
+> （没有 `FSTRING_*` token），于是我写的两条「正向对照」在 CI（3.11）上反而失败了。
+> 现在这类用例在低版本上**跳过**而不是失败——那些版本上解释器自己就会拒绝这类源码。
+> **CI 跑最低版本的价值正在于此：连「测试只在某个版本成立」都能被抓出来。**
 
 ---
 
