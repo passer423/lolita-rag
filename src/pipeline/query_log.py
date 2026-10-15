@@ -73,6 +73,11 @@ def settings_fingerprint(settings: Settings, bundle: Any | None = None) -> dict[
         "min_bm25_ratio": settings.min_bm25_ratio,
         "distinctive_df_ratio": settings.distinctive_df_ratio,
         "recall_k": settings.recall_k,
+        # 消融验证与闸门实现都跟着这两个值变，必须进指纹：
+        # 少了它，打开精排会**静默**改变指标，回归却以为还是同一套配置。
+        "reranker_enabled": settings.reranker_enabled,
+        "semantic_support_k": settings.semantic_support_k,
+        "absent_majority_ratio": settings.absent_majority_ratio,
     }
 
 

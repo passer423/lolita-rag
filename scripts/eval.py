@@ -24,6 +24,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--eval-path", default=str(DEFAULT_EVAL_PATH), help="评测集 jsonl 路径")
     parser.add_argument("--top-k", type=int, default=None, help="检索返回条数（默认取配置 TOP_K）")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出，便于脚本消费")
+    parser.add_argument(
+        "--split",
+        choices=["dev", "test"],
+        default=None,
+        help="只跑某个划分（dev 用来调参、test 只用来验收；默认全跑并分别汇总）",
+    )
     parser.add_argument("--log-level", default=None)
     args = parser.parse_args(argv)
 
@@ -36,8 +42,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        report = evaluate(args.eval_path, settings, top_k=args.top_k, bundle=bundle)
-    except EvalSetMismatchError as exc:
+        report = evaluate(
+            args.eval_path, settings, top_k=args.top_k, bundle=bundle, split=args.split
+        )
+    except (EvalSetMismatchError, ValueError) as exc:
         print(f"[评测集不匹配] {exc}", file=sys.stderr)
         return 2
 

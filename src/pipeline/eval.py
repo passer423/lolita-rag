@@ -43,7 +43,26 @@ class QuestionResult:
     # 实测踩过：只看 refused/hit 的话，拒答用例漏答会渲染成 [未命中]，
     # 和正例未命中长得一模一样，排查时根本分不清是哪种失败。
     expect_no_answer: bool = False
+    # dev = 用来调参；test = 只用来验收（见 EvalReport.by_split 的说明）
+    split: str = "dev"
     retrieved: list[str] = field(default_factory=list)
+
+
+def split_metrics(results: list[QuestionResult]) -> dict:
+    """把一组结果压成指标。按 split 汇总时复用同一套算法，避免两处口径不一致。"""
+    positives = [item for item in results if not item.expect_no_answer]
+    refusals = [item for item in results if item.expect_no_answer]
+    correct = sum(1 for item in refusals if item.refused)
+    return {
+        "total": len(results),
+        "scored": len(positives),
+        "recall_at_k": (sum(item.recall for item in positives) / len(positives)) if positives else 0.0,
+        "mrr": (sum(item.reciprocal_rank for item in positives) / len(positives)) if positives else 0.0,
+        "hit_rate": (sum(1 for item in positives if item.hit) / len(positives)) if positives else 0.0,
+        "refusal_total": len(refusals),
+        "refusal_correct": correct,
+        "refusal_accuracy": (correct / len(refusals)) if refusals else None,
+    }
 
 
 @dataclass(slots=True)
@@ -58,6 +77,9 @@ class EvalReport:
     refusal_total: int = 0
     refusal_correct: int = 0
     results: list[QuestionResult] = field(default_factory=list)
+    # 按 dev / test 分别汇总。为什么要分：**所有阈值都是在 dev 上调的**，如果验收也用
+    # 同一批题，那就是"用测试集调参再拿测试集报数"。test 半区只用来验收，不动它。
+    by_split: dict[str, dict] = field(default_factory=dict)
 
     @property
     def refusal_accuracy(self) -> float | None:
@@ -82,6 +104,20 @@ class EvalReport:
         lines.append(
             f"拒答准确率    : {'无相关用例' if accuracy is None else f'{accuracy:.3f}（{self.refusal_correct}/{self.refusal_total}）'}"
         )
+        # 按 split 分别报告：**阈值是在 dev 上调的，test 只用来验收**。
+        # 如果只有一个 split 就跳过，避免给简单评测集添噪音。
+        if self.by_split:
+            lines.append("")
+            lines.append("按划分：")
+            lines.append(f"  {'划分':<6}{'题数':>5}{'Recall':>9}{'MRR':>9}{'Hit':>8}{'拒答':>9}")
+            for name in sorted(self.by_split):
+                stats = self.by_split[name]
+                refusal = stats["refusal_accuracy"]
+                lines.append(
+                    f"  {name:<6}{stats['total']:>5}{stats['recall_at_k']:>9.3f}"
+                    f"{stats['mrr']:>9.3f}{stats['hit_rate']:>8.3f}"
+                    f"{'—' if refusal is None else f'{refusal:.3f}':>9}"
+                )
         lines.append("")
         lines.append("逐题明细：")
         for index, result in enumerate(self.results, start=1):
@@ -131,11 +167,17 @@ def evaluate(
     *,
     top_k: int | None = None,
     bundle: RetrieverBundle | None = None,
+    split: str | None = None,
 ) -> EvalReport:
+    """跑一遍评测。``split`` 可只跑 ``dev`` 或 ``test``（默认全跑并分别汇总）。"""
     settings = settings or default_settings
     bundle = bundle or load_retriever(settings)
     k = top_k or settings.top_k
     items = load_eval_set(path)
+    if split:
+        items = [item for item in items if str(item.get("split") or "dev") == split]
+        if not items:
+            raise ValueError(f"评测集里没有 split={split} 的题目")
 
     # ---- 先校验评测集与语料是否对应，避免输出误导性的 0.000
     known_post_ids = {chunk.post_id for chunk in bundle.chunks}
@@ -187,6 +229,7 @@ def evaluate(
                     question=question,
                     refused=refused,
                     expect_no_answer=True,
+                    split=str(item.get("split") or "dev"),
                     retrieved=retrieved,
                 )
             )
@@ -206,6 +249,7 @@ def evaluate(
                 recall=recall,
                 reciprocal_rank=rr,
                 hit=bool(found),
+                split=str(item.get("split") or "dev"),
                 retrieved=retrieved,
             )
         )
@@ -217,4 +261,12 @@ def evaluate(
         report.recall_at_k = recall_sum / report.scored
         report.mrr = rr_sum / report.scored
         report.hit_rate = hit_count / report.scored
+
+    # 按 split 分别汇总（dev 调参、test 验收）。只有一种 split 时不显示，避免噪音。
+    splits = sorted({item.split for item in report.results})
+    if len(splits) > 1:
+        report.by_split = {
+            name: split_metrics([item for item in report.results if item.split == name])
+            for name in splits
+        }
     return report
