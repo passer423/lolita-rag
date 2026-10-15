@@ -196,12 +196,29 @@ def measure(
             "refusal_accuracy": None if refusal is None else round(float(refusal), 4),
         },
         "answer_metrics": answer_metrics,
+        # test 半区单独存一份：**阈值只在 dev 上调，test 用来验收**。
+        # 只报一个总分的话，test 半区退化了也看不出来（总分被 dev 稀释）。
+        "test_metrics": _test_metrics(report),
         "counts": {
             "total": report["total"],
             "scored": report["scored"],
             "refusal_total": report["refusal_total"],
         },
         "tests": {"passed": 0, "failed": 0, "returncode": 0} if skip_tests else run_tests(),
+    }
+
+
+def _test_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    """从评测报告里取出 test 半区的指标（没有划分时返回空字典）。"""
+    stats = (report.get("by_split") or {}).get("test")
+    if not stats:
+        return {}
+    refusal = stats.get("refusal_accuracy")
+    return {
+        "recall_at_k": round(float(stats["recall_at_k"]), 4),
+        "mrr": round(float(stats["mrr"]), 4),
+        "hit_rate": round(float(stats["hit_rate"]), 4),
+        "refusal_accuracy": None if refusal is None else round(float(refusal), 4),
     }
 
 
@@ -224,7 +241,7 @@ def compare(current: dict[str, Any], baseline: dict[str, Any]) -> tuple[list[str
             f"{baseline.get('fingerprint')} → {current.get('fingerprint')}"
         )
 
-    for group, label in (("metrics", ""), ("answer_metrics", "生成层 ")):
+    for group, label in (("metrics", ""), ("test_metrics", "test 半区 "), ("answer_metrics", "生成层 ")):
         base_group = baseline.get(group) or {}
         for key, value in (current.get(group) or {}).items():
             base = base_group.get(key)
@@ -251,7 +268,7 @@ def render(current: dict[str, Any], baseline: dict[str, Any] | None = None) -> s
         f"{'指标':<26}{'当前':>9}{'基线':>9}{'变化':>10}",
     ]
     rows: list[tuple[str, Any]] = []
-    for group, label in (("metrics", ""), ("answer_metrics", "生成层 ")):
+    for group, label in (("metrics", ""), ("test_metrics", "test 半区 "), ("answer_metrics", "生成层 ")):
         base_group = {} if baseline is None else (baseline.get(group) or {})
         for key, value in (current.get(group) or {}).items():
             rows.append((f"{label}{key}", (value, base_group.get(key))))

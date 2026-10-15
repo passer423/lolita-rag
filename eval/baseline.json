@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-15T18:51:05",
+  "captured_at": "2026-10-15T19:33:50",
   "eval_path": "eval/qa_real.jsonl",
   "fingerprint": {
     "chunks": 1740,
@@ -8,11 +8,14 @@
     "min_vector_score": 0.44,
     "min_bm25_ratio": 0.2,
     "distinctive_df_ratio": 0.1,
-    "recall_k": 20
+    "recall_k": 20,
+    "reranker_enabled": false,
+    "semantic_support_k": 200,
+    "absent_majority_ratio": 0.5
   },
   "metrics": {
     "recall_at_k": 0.9419,
-    "mrr": 0.8651,
+    "mrr": 0.8767,
     "hit_rate": 0.9535,
     "refusal_accuracy": 0.8182
   },
@@ -23,13 +26,19 @@
     "refusal_rate_without_context": 1.0,
     "problem_count": 0.0
   },
+  "test_metrics": {
+    "recall_at_k": 0.9643,
+    "mrr": 0.9464,
+    "hit_rate": 1.0,
+    "refusal_accuracy": 0.75
+  },
   "counts": {
     "total": 54,
     "scored": 43,
     "refusal_total": 11
   },
   "tests": {
-    "passed": 390,
+    "passed": 394,
     "failed": 0,
     "returncode": 0
   }
