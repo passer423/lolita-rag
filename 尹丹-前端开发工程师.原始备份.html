@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>尹丹 - 前端开发工程师</title>
+  <style>
+    :root {
+      --accent: #28639a;
+      --text: #202b36;
+      --muted: #5d6975;
+      --line: #dbe4ec;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #eef1f5;
+      color: var(--text);
+      font-family:
+        "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
+        Arial, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .toolbar {
+      margin: 20px auto;
+      text-align: center;
+    }
+
+    .toolbar button {
+      padding: 10px 24px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .toolbar p {
+      margin: 10px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .page {
+      position: relative;
+      width: 210mm;
+      min-height: 297mm;
+      margin: 20px auto;
+      padding: 16mm 17mm 18mm;
+      background: #fff;
+      box-shadow: 0 4px 24px rgb(0 0 0 / 7%);
+      font-size: 10pt;
+      line-height: 1.65;
+      overflow-wrap: break-word;
+    }
+
+    .identity {
+      padding-bottom: 13px;
+      border-bottom: 3px solid var(--accent);
+    }
+
+    .identity-top {
+      display: flex;
+      align-items: baseline;
+      gap: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 29pt;
+      line-height: 1.3;
+      letter-spacing: 2px;
+    }
+
+    .role {
+      color: var(--accent);
+      font-size: 16pt;
+      font-weight: 700;
+    }
+
+    .contact {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 9.5pt;
+    }
+
+    .contact span {
+      display: inline-block;
+      margin-right: 14px;
+    }
+
+    .contact a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    section {
+      margin-top: 16px;
+    }
+
+    h2 {
+      margin: 0 0 9px;
+      padding-left: 10px;
+      border-left: 4px solid var(--accent);
+      font-size: 13pt;
+      line-height: 1.3;
+      break-after: avoid;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 10.8pt;
+      font-weight: 700;
+    }
+
+    p {
+      margin: 5px 0;
+    }
+
+    ul {
+      margin: 5px 0 0;
+      padding-left: 17px;
+    }
+
+    li {
+      margin: 4px 0;
+      padding-left: 2px;
+    }
+
+    li::marker {
+      color: var(--accent);
+    }
+
+    strong {
+      font-weight: 700;
+    }
+
+    .entry-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      break-after: avoid;
+    }
+
+    .date {
+      flex-shrink: 0;
+      color: var(--muted);
+      font-size: 9pt;
+      white-space: nowrap;
+    }
+
+    .position {
+      margin: 3px 0 5px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .stack {
+      margin: 4px 0 7px;
+      color: var(--muted);
+      font-size: 9pt;
+    }
+
+    .description {
+      margin-bottom: 7px;
+      color: var(--muted);
+    }
+
+    .skill {
+      margin: 5px 0;
+    }
+
+    .project + .project {
+      margin-top: 23px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .running-header {
+      display: flex;
+      justify-content: space-between;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--accent);
+      color: var(--muted);
+      font-size: 9pt;
+    }
+
+    .running-header strong {
+      color: var(--text);
+    }
+
+    .page-number {
+      position: absolute;
+      right: 17mm;
+      bottom: 9mm;
+      color: #82909c;
+      font-size: 8pt;
+    }
+
+    .education {
+      margin-top: 25px;
+    }
+
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .toolbar {
+        display: none;
+      }
+
+      .page {
+        width: auto;
+        min-height: 297mm;
+        margin: 0;
+        box-shadow: none;
+        break-after: page;
+      }
+
+      .page:last-child {
+        break-after: auto;
+      }
+
+      li,
+      .skill,
+      .entry-head {
+        break-inside: avoid;
+      }
+    }
+
+    @media screen and (max-width: 820px) {
+      .page {
+        width: calc(100% - 24px);
+        min-height: auto;
+        padding: 26px 22px 46px;
+      }
+
+      .identity-top,
+      .entry-head {
+        flex-wrap: wrap;
+        gap: 4px 14px;
+      }
+
+      .role {
+        font-size: 14pt;
+      }
+
+      .page-number {
+        right: 22px;
+        bottom: 15px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">导出 PDF</button>
+    <p>选择 A4、缩放 100%，关闭页眉和页脚；建议文件名：尹丹-前端开发工程师.pdf</p>
+  </div>
+
+  <!-- 第 1 页 -->
+  <main class="page">
+    <header class="identity">
+      <div class="identity-top">
+        <h1>尹丹</h1>
+        <div class="role">前端开发工程师</div>
+      </div>
+      <div class="contact">
+        <span>4 年前端经验</span>
+        <span>深圳</span>
+        <span>全日制本科</span>
+      </div>
+      <div class="contact">
+        <span>电话：<a href="tel:13789123953">137 8912 3953</a></span>
+        <span>邮箱：<a href="mailto:915427492@qq.com">915427492@qq.com</a></span>
+      </div>
+    </header>
+
+    <section>
+      <h2>核心优势</h2>
+      <ul>
+        <li>
+          <strong>企业级前端交付：</strong>
+          4 年 Vue 技术栈开发经验，参与知识管理、学习培训及职级认证平台建设，
+          具备 PC、H5 和小程序开发经验，能够独立承担业务模块开发与上线交付。
+        </li>
+        <li>
+          <strong>项目搭建与工程改进：</strong>
+          具备项目从 0 到 1 搭建经验，主导 Webpack 向 Vite 迁移及通用组件升级重构，
+          参与公共逻辑封装、代码规范建设与性能优化。
+        </li>
+        <li>
+          <strong>AI 应用加分项：</strong>
+          参与 RAG 智能问答及 AI Agent 相关功能交付，熟悉会话式交互与流式内容展示。
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>专业技能</h2>
+      <p class="skill">
+        <strong>前端基础：</strong>
+        熟练使用 JavaScript（ES6+）、HTML、CSS，掌握 TypeScript；
+        具备组件化、模块化开发与多端页面适配经验。
+      </p>
+      <p class="skill">
+        <strong>Vue 生态：</strong>
+        熟练使用 Vue 2 / Vue 3、Vue Router、Vuex / Pinia、Element UI；
+        具备路由组织、状态管理、业务组件与 hooks 封装经验。
+      </p>
+      <p class="skill">
+        <strong>前端工程化：</strong>
+        熟练使用 Vite、Webpack、Git、npm、yarn，具备构建工具迁移实践；
+        参与 ESLint、Prettier 规范建设及通用组件维护。
+      </p>
+      <p class="skill">
+        <strong>性能与质量：</strong>
+        具备页面加载和交互性能优化经验，参与测试用例设计、自动化测试及上线验证。
+      </p>
+      <p class="skill">
+        <strong>数据可视化：</strong>
+        使用 AntV G6 实现学习路径、学习进度及业务关系图展示。
+      </p>
+      <p class="skill">
+        <strong>AI 应用前端：</strong>
+        熟悉 SSE / WebSocket 流式输出、多轮对话与上下文管理、
+        Markdown 及代码块渲染；参与 RAG 问答前端开发。
+      </p>
+    </section>
+
+    <section>
+      <h2>工作经历</h2>
+      <div class="entry-head">
+        <h3>华为技术有限公司（OD）</h3>
+        <span class="date">2022.06—2026.06</span>
+      </div>
+      <p class="position">前端开发工程师</p>
+      <ul>
+        <li>
+          负责知识平台、学习看板及职级认证等业务的前端研发，
+          参与技术方案设计，完成业务开发、接口联调与上线维护。
+        </li>
+        <li>
+          主导通用组件升级重构，沉淀可复用组件及工具方法，
+          统一公共能力与代码规范，支持多业务模块迭代。
+        </li>
+        <li>
+          参与开发测试融合与测试轮岗，独立负责所承担模块的新增需求测试用例编写、
+          自动化测试及上线验证。
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>项目经历</h2>
+      <article class="project">
+        <div class="entry-head">
+          <h3>知识服务语料治理｜知识管理平台</h3>
+          <span class="date">2024.06—2026.06</span>
+        </div>
+        <p class="stack">技术栈：Vue 3 · JavaScript · Pinia · Vite</p>
+        <p class="description">
+          内部知识管理平台，整合知识接入、清洗、质量评价、AI 整理及智能问答，
+          支撑知识治理与检索问答业务。
+        </p>
+        <ul>
+          <li>
+            <strong>核心模块开发：</strong>
+            负责知识接入、清洗、质量评价、AI 整理及问答相关模块的前端实现，
+            完成业务页面与交互功能交付。
+          </li>
+          <li>
+            <strong>构建体系迁移：</strong>
+            主导 Webpack 向 Vite 迁移，完成相关构建配置调整，
+            改善本地开发构建与热更新体验。
+          </li>
+          <li>
+            <strong>AI 功能落地：</strong>
+            参与 RAG 智能问答前端交付，使用 Harness
+            完成 AI Agent / 流程编排相关功能。
+          </li>
+        </ul>
+      </article>
+    </section>
+
+    <footer class="page-number">1 / 2</footer>
+  </main>
+
+  <!-- 第 2 页 -->
+  <div class="page">
+    <header class="running-header">
+      <strong>尹丹｜前端开发工程师</strong>
+      <span>137 8912 3953</span>
+    </header>
+
+    <section>
+      <h2>项目经历（续）</h2>
+
+      <article class="project">
+        <div class="entry-head">
+          <h3>学习助手｜学习路径与进度看板</h3>
+          <span class="date">2024.01—2025.06</span>
+        </div>
+        <p class="stack">
+          技术栈：Vue 3 · JavaScript · Vue Router · Vuex · Vite · AntV G6
+        </p>
+        <p class="description">
+          面向新员工入职培训，接入课程、考试及导师自定义学习内容，
+          通过图可视化展示学习路径与进度，覆盖数千名新员工。
+        </p>
+        <ul>
+          <li>
+            <strong>从 0 到 1 搭建：</strong>
+            负责项目前端方案设计与整体架构落地，
+            完成项目基础结构、Vue Router 路由组织、Vuex 状态管理及数据存储设计。
+          </li>
+          <li>
+            <strong>公共逻辑封装：</strong>
+            封装可复用 hooks，组织业务模块与页面逻辑，
+            支持学习看板功能维护和后续需求迭代。
+          </li>
+          <li>
+            <strong>图可视化开发：</strong>
+            使用 AntV G6 实现学习路径及学习进度展示，
+            呈现课程、考试与学习内容之间的关系，提升学习信息的可读性。
+          </li>
+          <li>
+            <strong>核心交互实现：</strong>
+            负责看板页面、路由跳转等核心功能开发维护，
+            优化学习内容访问与页面交互体验。
+          </li>
+          <li>
+            <strong>页面性能优化：</strong>
+            针对学习看板开展页面性能优化，加载耗时降低 50%，
+            改善用户访问体验。
+          </li>
+        </ul>
+      </article>
+
+      <article class="project">
+        <div class="entry-head">
+          <h3>专业回馈｜职级认证与审批平台</h3>
+          <span class="date">2023.01—2026.06</span>
+        </div>
+        <p class="stack">
+          PC 端技术栈：Vue 3 · JavaScript · Pinia · Vite
+          <br>
+          交付端：PC 端、小程序
+        </p>
+        <p class="description">
+          面向内部职级认证场景，提供认证查询、申报、数据录入及积分配置能力；
+          小程序端支持待办审批与审批流程查阅。
+        </p>
+        <ul>
+          <li>
+            <strong>业务功能开发：</strong>
+            负责主要功能设计与开发，支持职级认证查询、申报、
+            数据录入及积分系统配置等业务流程落地。
+          </li>
+          <li>
+            <strong>小程序建设：</strong>
+            负责移动端从 0 到 1 搭建，落地整体前端架构与工程规范，
+            完成移动端业务功能开发。
+          </li>
+          <li>
+            <strong>审批功能交付：</strong>
+            负责待办审批、审批流程查阅等核心模块开发维护，
+            支持审核人在移动端查看和处理待办。
+          </li>
+          <li>
+            <strong>富文本展示优化：</strong>
+            实现并优化详情页富文本渲染，
+            保障复杂内容稳定展示，改善业务详情阅读体验。
+          </li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="education">
+      <h2>教育背景</h2>
+      <div class="entry-head">
+        <h3>湘南学院</h3>
+        <span class="date">2017—2021</span>
+      </div>
+      <p>信息与计算科学｜全日制本科</p>
+    </section>
+
+    <footer class="page-number">2 / 2</footer>
+  </div>
+</body>
+</html>
