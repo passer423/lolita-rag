@@ -1188,6 +1188,37 @@ python scripts/query_log.py --source web --json
 > git config user.name "你的名字" && git config user.email "you@example.com"
 > ```
 
+### 推送时的网络：直连与代理是两套配置
+
+实测踩过两次，方向刚好相反：
+
+* 第一次 `git push` 报 `Could not connect to server` / `schannel: server closed abruptly`，
+  而**浏览器打开 GitHub 是正常的**。根因是这台机器上网走**系统代理**
+  （`HKCU:\...\Internet Settings` 里的 `ProxyServer`）：`Invoke-WebRequest` 会自动使用
+  系统代理，**而 git 不会**——它直连 `github.com:443` 就被重置了。
+* 于是给仓库配了 `http.proxy`，结果代理软件一关，push 又失败
+  （`Failed to connect ... over proxy 127.0.0.1`），而此时**直连是通的**。
+
+git 没有「代理开着就用、关了就直连」的条件配置，所以按当前网络状态二选一：
+
+```bash
+# 直连（代理软件没开、且直连可达时）
+git config --unset http.proxy
+
+# 走本地代理（代理软件开着时）
+git config http.proxy http://127.0.0.1:7897
+
+# 看一眼当前用的是哪种
+git config --get http.proxy && echo "走代理" || echo "直连"
+```
+
+> 诊断顺序：`Test-NetConnection github.com -Port 443`（直连是否可达）→
+> `Test-NetConnection 127.0.0.1 -Port 7897`（代理是否在跑）。两者都通就任选其一；
+> 只有代理通就用代理，只有直连通就直连。
+>
+> 这一条与项目无关，但**排查过程值得记**：报错说「连不上」时，先分清是
+> **网络层**、**代理层**还是**认证层**的问题，别急着怀疑代码。
+
 ### 密钥不进日志：`Settings` 的 repr 会打码
 
 实测**意外发现**的泄漏路径：pytest 失败时会把 fixture 的取值连同报告一起打印，
