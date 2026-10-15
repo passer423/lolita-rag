@@ -39,6 +39,10 @@ class QuestionResult:
     reciprocal_rank: float = 0.0
     hit: bool = False
     refused: bool = False
+    # 这一题**应该**拒答吗。渲染时必须区分「正例没召回」和「该拒却没拒」——
+    # 实测踩过：只看 refused/hit 的话，拒答用例漏答会渲染成 [未命中]，
+    # 和正例未命中长得一模一样，排查时根本分不清是哪种失败。
+    expect_no_answer: bool = False
     retrieved: list[str] = field(default_factory=list)
 
 
@@ -83,8 +87,9 @@ class EvalReport:
         for index, result in enumerate(self.results, start=1):
             # 只用 GBK 也能编码的字符：Windows 中文控制台默认 cp936，
             # emoji 会让 print 直接抛 UnicodeEncodeError
-            if result.refused:
-                flag = "[正确拒答]"
+            if result.expect_no_answer:
+                # 拒答用例的两种结果要分得清：拒对了 / 该拒没拒
+                flag = "[正确拒答]" if result.refused else f"[该拒未拒 {len(result.retrieved)} 条]"
             elif result.hit:
                 flag = "[命中]"
             else:
@@ -178,7 +183,12 @@ def evaluate(
             report.refusal_total += 1
             report.refusal_correct += int(refused)
             report.results.append(
-                QuestionResult(question=question, refused=refused, retrieved=retrieved)
+                QuestionResult(
+                    question=question,
+                    refused=refused,
+                    expect_no_answer=True,
+                    retrieved=retrieved,
+                )
             )
             continue
 

@@ -1,8 +1,8 @@
 {
-  "captured_at": "2026-10-13T16:33:11",
+  "captured_at": "2026-10-15T18:51:05",
   "eval_path": "eval/qa_real.jsonl",
   "fingerprint": {
-    "chunks": 1675,
+    "chunks": 1740,
     "embedder": "bge:BAAI/bge-small-zh-v1.5",
     "fusion_mode": "weighted",
     "min_vector_score": 0.44,
@@ -11,10 +11,10 @@
     "recall_k": 20
   },
   "metrics": {
-    "recall_at_k": 0.9167,
-    "mrr": 0.8625,
-    "hit_rate": 0.9167,
-    "refusal_accuracy": 0.875
+    "recall_at_k": 0.9419,
+    "mrr": 0.8651,
+    "hit_rate": 0.9535,
+    "refusal_accuracy": 0.8182
   },
   "answer_metrics": {
     "citation_valid_rate": 1.0,
@@ -24,12 +24,12 @@
     "problem_count": 0.0
   },
   "counts": {
-    "total": 32,
-    "scored": 24,
-    "refusal_total": 8
+    "total": 54,
+    "scored": 43,
+    "refusal_total": 11
   },
   "tests": {
-    "passed": 378,
+    "passed": 390,
     "failed": 0,
     "returncode": 0
   }
