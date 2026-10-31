@@ -1,0 +1,20 @@
+#!/bin/sh
+# 提交前检查：拦住个人文件与密钥进仓库。
+#
+# 为什么存在：一次 `git add -A` 把工作区里的个人简历（PDF）一起提交进了公开仓库，
+# 事后只能改写历史 + 强推才清除。所以在这里加一道最便宜的拦截。
+#
+# 安装（一次性）：
+#     git config core.hooksPath .githooks
+# 应急放行：
+#     git commit --no-verify      # CI 里的 check_staged.py --tracked 仍会拦
+
+here=$(git rev-parse --show-toplevel)
+for py in python python3 py; do
+    if command -v "$py" >/dev/null 2>&1; then
+        "$py" "$here/scripts/check_staged.py"
+        exit $?
+    fi
+done
+echo "[check_staged] 找不到 python，跳过检查（请手动确认没有个人文件）" >&2
+exit 0

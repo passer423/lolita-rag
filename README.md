@@ -82,7 +82,7 @@ lolita-rag/
 ├── eval/                    评测集（qa_mock / qa_real）与 baseline.json
 ├── .github/workflows/ci.yml CI：只能跑 mock 语料（data/ 不入库）
 ├── data/                    raw / processed / index / cache / logs（均不入库）
-└── tests/                   单元测试（394 项，含真实数据打出来的回归用例）
+└── tests/                   单元测试（414 项，含真实数据打出来的回归用例）
 ```
 
 数据流：
@@ -1251,6 +1251,44 @@ python scripts/query_log.py --source web --json
 > ```bash
 > git config user.name "你的名字" && git config user.email "you@example.com"
 > ```
+
+### 提交前检查：个人文件与密钥不许进仓库
+
+这一条是**用真事故换来的**：一次 `git add -A` 把工作区里的**个人简历 PDF**（还有它的
+HTML 备份）一起提交进了公开仓库，而且过了一段时间才发现。
+
+**删除文件并不等于删除历史**——它仍然能从旧提交里取到（实测：即便强推之后，用旧
+SHA 请求 `raw.githubusercontent.com` 仍返回 200）。唯一的清除办法是**改写历史 +
+强推**，代价是所有 SHA 变化、别人的克隆全部失效、还得找 GitHub Support 清缓存。
+
+所以加了一道最便宜的拦截：
+
+```bash
+git config core.hooksPath .githooks      # 一次性安装 pre-commit 钩子
+python scripts/check_staged.py           # 手动检查暂存区
+python scripts/check_staged.py --tracked # 检查 HEAD 全部文件（CI 里跑这个）
+```
+
+拦什么（**默认拒绝**，放行要显式登记）：
+
+| 类别 | 例子 |
+|---|---|
+| 个人/办公文档 | `.pdf` `.docx` `.xlsx` `.pptx` `.zip`，文件名含「简历/resume/身份证/薪资/成绩单」 |
+| 凭据 | `.env`（`.env.example` 这类模板除外）、`.har` 抓包、`.pem`/`.p12` 私钥 |
+| 图片 | `.png` `.jpg`… 默认拒绝——**文档截图请写进 [config/commit_allowlist.txt](config/commit_allowlist.txt)** |
+| 体积 | 单文件 > 3 MB（本仓库全部文件加起来不到 1 MB） |
+
+放行方式与逃生口：
+
+* 确有必要的二进制 → 写进 [config/commit_allowlist.txt](config/commit_allowlist.txt)（支持 `docs/**/*.png` 这种写法）；
+* 单次应急 → `git commit --no-verify`，**但 CI 的 `--tracked` 检查仍然会拦**——
+  两道闸门配合：钩子可以被绕过，CI 不行。
+
+> 两个实现细节值得记：
+> ① 脚本必须用 `git rev-parse --show-toplevel` 定位仓库根，**不能用 `__file__`**：
+> 最初那样写时，钩子装到别的仓库它就仍然去查自己那个仓库，检查完全无效（测试抓到了）。
+> ② `fnmatch` 不懂"零个或多个目录"的语义——`docs/**/*.png` 匹配不到
+> `docs/screenshot.png`。白名单是写给人看的，所以实现里做了模式展开。
 
 ### 推送时的网络：直连与代理是两套配置
 

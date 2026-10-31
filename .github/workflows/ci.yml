@@ -39,6 +39,13 @@ jobs:
       - name: 语法自检（按 CI 的 Python 版本编译全部源码）
         run: python -m compileall -q src scripts tests
 
+      # 仓库卫生检查：拦住个人文件（简历/证件/薪资）与密钥（.env、.har、私钥）。
+      # 本机有 pre-commit 钩子做同样的事，但 `git commit --no-verify` 能绕过钩子——
+      # 所以这里用 --tracked 把**已经进了 HEAD 的文件**再查一遍，做最后一道兜底。
+      # 这不是假想问题：一次 `git add -A` 真的把个人简历 PDF 提交进了公开仓库。
+      - name: 仓库卫生检查（个人文件与密钥不得入库）
+        run: python scripts/check_staged.py --tracked
+
       - name: 单元测试
         # 失败时把明细写成 check-run 注解：这样在 PR 的 Checks 页面能直接看到
         # 哪个测试挂了、挂在哪一行，不用翻完整日志。
